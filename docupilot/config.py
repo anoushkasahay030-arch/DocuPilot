@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # Local models (fastembed / ONNX, run fully offline after first download)
     dense_model: str = "BAAI/bge-small-en-v1.5"
     sparse_model: str = "Qdrant/bm25"
-    rerank_model: str = "BAAI/bge-reranker-base"
+    rerank_model: str = "Xenova/ms-marco-MiniLM-L-12-v2"
 
     # Chunking (tokens are approximated as chars / 4)
     chunk_tokens: int = 450

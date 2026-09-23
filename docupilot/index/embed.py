@@ -1,0 +1,73 @@
+"""Local ONNX models via fastembed: dense + BM25 sparse embeddings and a cross-encoder reranker.
+
+Nothing here calls a remote API — documents are indexed fully on-device.
+"""
+
+import math
+import threading
+from functools import lru_cache
+
+from fastembed import SparseEmbedding, SparseTextEmbedding, TextEmbedding
+from fastembed.rerank.cross_encoder import TextCrossEncoder
+
+from docupilot.config import get_settings
+
+_lock = threading.Lock()
+
+
+def _cache_dir() -> str:
+    d = get_settings().data_dir / "models"
+    d.mkdir(parents=True, exist_ok=True)
+    return str(d)
+
+
+@lru_cache
+def dense_model() -> TextEmbedding:
+    with _lock:
+        return TextEmbedding(get_settings().dense_model, cache_dir=_cache_dir())
+
+
+@lru_cache
+def sparse_model() -> SparseTextEmbedding:
+    with _lock:
+        return SparseTextEmbedding(get_settings().sparse_model, cache_dir=_cache_dir())
+
+
+@lru_cache
+def reranker() -> TextCrossEncoder:
+    with _lock:
+        return TextCrossEncoder(get_settings().rerank_model, cache_dir=_cache_dir())
+
+
+@lru_cache
+def dense_dim() -> int:
+    return len(next(iter(dense_model().embed(["dimension probe"]))))
+
+
+def embed_passages(texts: list[str]) -> tuple[list[list[float]], list[SparseEmbedding]]:
+    dense = [v.tolist() for v in dense_model().passage_embed(texts)]
+    sparse = list(sparse_model().passage_embed(texts))
+    return dense, sparse
+
+
+def embed_query(text: str) -> tuple[list[float], SparseEmbedding]:
+    dense = next(iter(dense_model().query_embed(text))).tolist()
+    sparse = next(iter(sparse_model().query_embed(text)))
+    return dense, sparse
+
+
+def _sigmoid(x: float) -> float:
+    return 1 / (1 + math.exp(-x))
+
+
+def rerank(query: str, docs: list[str]) -> list[float]:
+    """Cross-encoder relevance per doc, squashed to [0, 1] so thresholds are model-agnostic."""
+    if not docs:
+        return []
+    return [_sigmoid(float(s)) for s in reranker().rerank(query, docs, batch_size=16)]
+
+
+def warmup() -> None:
+    dense_dim()
+    sparse_model()
+    rerank("warmup", ["warmup"])

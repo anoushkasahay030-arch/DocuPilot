@@ -15,6 +15,7 @@ import pandas as pd
 
 from docupilot.models import TableInfo
 
+_BOOLS = {"true": True, "false": False, "yes": True, "no": False, "y": True, "n": False}
 _NUM_JUNK = re.compile(r"[,$€£¥%\s]")
 _FORBIDDEN = re.compile(
     r"\b(insert|update|delete|drop|create|alter|attach|detach|copy|pragma|install|load|export|import|call|"
@@ -86,6 +87,10 @@ def _coerce(df: pd.DataFrame) -> pd.DataFrame:
         if nonnull.empty:
             continue
         as_str = nonnull.astype(str)
+        lowered = as_str.str.strip().str.lower()
+        if lowered.isin(_BOOLS).all():
+            df[col] = s.map(lambda v: None if pd.isna(v) else _BOOLS[str(v).strip().lower()]).astype("boolean")
+            continue
         num = pd.to_numeric(as_str.str.replace(_NUM_JUNK, "", regex=True), errors="coerce")
         if num.notna().mean() >= 0.9:
             df[col] = pd.to_numeric(s.astype(str).str.replace(_NUM_JUNK, "", regex=True), errors="coerce")

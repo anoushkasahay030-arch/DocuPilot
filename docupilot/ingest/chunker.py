@@ -97,7 +97,27 @@ def chunk_sections(sections: list[Section], *, file_id: str, session_id: str, ta
     return chunks
 
 
+def linearize_table(md: str) -> str:
+    """Markdown table → one "col: value; col: value" line per row.
+
+    Embedding models and cross-encoders are trained on prose; they score raw pipe tables poorly
+    (a perfectly relevant table can rerank at ~0.05). Linearised rows score like normal sentences.
+    """
+    lines = [ln.strip() for ln in md.splitlines() if ln.strip().startswith("|")]
+    if len(lines) < 2:
+        return md
+    cells = lambda ln: [c.strip() for c in ln.strip("|").split("|")]  # noqa: E731
+    header = cells(lines[0])
+    body = lines[2:] if set(lines[1].replace("|", "").strip()) <= set("-: ") else lines[1:]
+    rows = []
+    for ln in body:
+        vals = cells(ln)
+        rows.append("; ".join(f"{h}: {v}" for h, v in zip(header, vals) if v) + ".")
+    return "\n".join(rows)
+
+
 def embed_text(chunk: Chunk) -> str:
     """Contextual header + body. The header helps both dense and BM25 match file/section names."""
     header = chunk.file_name + (f" › {chunk.heading_path}" if chunk.heading_path else "")
-    return f"[{header}]\n{chunk.text}"
+    body = linearize_table(chunk.text) if chunk.kind == "table" else chunk.text
+    return f"[{header}]\n{body}"

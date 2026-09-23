@@ -18,12 +18,15 @@ _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _HEADING_STYLE = re.compile(r"^heading\s*(\d)$", re.I)
 
 
-def _heading_level(p: Paragraph) -> int | None:
+def _heading_level(p: Paragraph, has_title: bool) -> int | None:
     name = (p.style.name if p.style is not None else "") or ""
     if name.lower() == "title":
         return 1
     m = _HEADING_STYLE.match(name)
-    return int(m.group(1)) if m else None
+    if not m:
+        return None
+    # Nest section headings under the document title when there is one.
+    return min(int(m.group(1)) + int(has_title), 6)
 
 
 def _cell(text: str) -> str:
@@ -64,6 +67,7 @@ def parse_docx(path: Path, file_name: str) -> list[Section]:
     body = document.element.body
 
     has_rendered = any(True for _ in body.iter(f"{_W}lastRenderedPageBreak"))
+    has_title = any((p.style is not None and (p.style.name or "").lower() == "title") for p in document.paragraphs)
     pages: list[list[str]] = [[]]
 
     def new_page() -> None:
@@ -78,7 +82,7 @@ def parse_docx(path: Path, file_name: str) -> list[Section]:
                 new_page()
             text = p.text.strip()
             if text:
-                level = _heading_level(p)
+                level = _heading_level(p, has_title)
                 style = (p.style.name if p.style is not None else "") or ""
                 if level:
                     pages[-1].append(f"{'#' * level} {text}")
