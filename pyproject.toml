@@ -1,0 +1,25 @@
+[project]
+name = "docupilot"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "chainlit>=2.12.0",
+    "duckdb>=1.5.5",
+    "fastembed>=0.8.1",
+    "google-genai>=2.25.0",
+    "langgraph>=1.2.12",
+    "openpyxl>=3.1.5",
+    "pandas>=3.0.6",
+    "pydantic-settings>=2.15.0",
+    "pymupdf>=1.28.2",
+    "pymupdf4llm>=1.28.2",
+    "python-docx>=1.2.0",
+    "python-dotenv>=1.2.3",
+    "qdrant-client>=1.19.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
