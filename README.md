@@ -2,7 +2,7 @@
 
 DocuPilot is a multi-agent chat app for your files. Upload PDFs, Word documents, Markdown, text files and spreadsheets, then ask questions across all of them. Every answer is grounded in your files, cites the file and page it came from, and is checked for hallucinations before you see it.
 
-> **Status: MVP in progress.** Ingestion, hybrid retrieval, the spreadsheet engine and the tests are done. The agent graph and the Chainlit UI are being built next (see the [Roadmap](#roadmap)).
+> **Status: MVP in progress.** Ingestion, retrieval, the spreadsheet engine and the multi-agent graph are done and tested. The Chainlit UI is next (see the [Roadmap](#roadmap)).
 
 ## Why it's different
 
@@ -34,6 +34,18 @@ question ─► Router ──┬─► Retrieval agent (hybrid RRF ─► cross-
 | Parsing | `pymupdf4llm` (layout-aware PDF → markdown with tables), `python-docx`, a Markdown/TXT parser |
 | Tables | pandas + DuckDB, in-memory per session |
 | UI | Chainlit |
+
+### The agents
+
+| Agent | Model | What it does |
+|---|---|---|
+| **Router / Planner** | Flash, JSON | Rewrites follow-ups into a standalone question using conversation memory (*"and its warranty?"* becomes *"What is Scout's warranty?"*). Picks a route: `docs`, `table`, `both` (run in parallel), `summary` or `chitchat`. Splits multi-part questions into search sub-queries. Downgrades routes that can't run with the files loaded. |
+| **Retrieval** | local | Hybrid search, then rerank, with a quota per sub-query. The `summary` route instead samples passages evenly across the whole file (beginning, middle and end), because top-k similarity is wrong for "summarize this". A retry widens the search: double k, no file filter, and the user's original wording added as a query. |
+| **Table / Data** | Flash, JSON | Generates DuckDB SQL (1–3 queries) from the tables' schema cards and runs them in the sandbox. On an error it sends the error back to the model and fixes the query, up to 2 times. SQL results become citable sources. |
+| **Synthesis** | Pro, streamed | Writes one answer from numbered sources and puts `[n]` after every factual sentence. If nothing clears the relevance threshold, it doesn't call the LLM at all: it widens the search once, then says *"I couldn't find that in your files"*, listing what it searched and the closest near-misses. |
+| **Verifier** | Flash, JSON | Splits the answer into atomic claims and checks each against its cited source (supported / partial / unsupported). Confidence = 75% claim support + 25% relevance of the best cited source. Unsupported claims are removed. Low confidence triggers one wider retry. If no claim is supported, the answer becomes an explicit "I don't know". |
+
+Conversation memory is a LangGraph checkpointer keyed by chat session. Every agent streams its reasoning (route, passages with scores, SQL and results, claim verdicts) to the UI.
 
 ### Engineering notes
 - **Layout-aware chunking.**
@@ -76,7 +88,7 @@ cp .env.example .env        # then set GEMINI_API_KEY
 ## Tests
 
 ```bash
-uv run pytest               # offline: parsers, chunker, SQL engine + sandbox, hybrid retrieval
+uv run pytest               # offline, no API key: parsers, chunker, SQL sandbox, retrieval, and the full agent graph with a scripted fake LLM
 ```
 
 To build the sample corpus (a PDF report, a DOCX handbook, an MD FAQ, TXT minutes, an XLSX with a title row, and a CSV):
@@ -94,6 +106,8 @@ docupilot/
   models.py        Section / Chunk / Citation / TableInfo …
   workspace.py     per-session files: parse → chunk → index; DuckDB tables
   retrieval.py     hybrid search + rerank + sub-query quotas
+  prompts.py       all agent prompts
+  agents/          router, retriever, table, synthesis, verifier, graph (LangGraph wiring)
   ingest/          pdf.py, word.py, text.py, tabular.py, chunker.py
   index/           embed.py (local models), store.py (Qdrant)
 eval/corpus.py     deterministic multi-format test corpus with known answers
@@ -104,7 +118,7 @@ tests/             pytest suite
 - [x] Layout-aware parsing (PDF, DOCX, MD, TXT) and structure-bounded chunking
 - [x] Spreadsheet engine (header detection, typing, sandboxed SQL)
 - [x] Hybrid retrieval (dense + BM25 + RRF) with local reranking
-- [ ] Agent graph: router, retrieval, table, synthesis and verification agents, plus memory
+- [x] Agent graph: router, retrieval, table, synthesis and verification agents, plus memory (LangGraph)
 - [ ] Chainlit UI with streaming, per-agent steps, citation side panels and a PDF page viewer
 - [ ] Eval harness (hit@k, citation accuracy, table exact match, IDK rate)
 - [ ] Later phases: images and scanned PDFs (Gemini vision + Tesseract), PPTX, code files, audio, HTML

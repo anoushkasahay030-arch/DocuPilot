@@ -89,6 +89,18 @@ class VectorStore:
         )
         return [Chunk.from_payload(p.payload or {}) for p in res.points]
 
+    def file_chunks(self, session_id: str, file_names: list[str] | None = None, *, max_scan: int = 5000) -> list[Chunk]:
+        """All chunks of the given files in document order (used for whole-file summaries)."""
+        out: list[Chunk] = []
+        offset = None
+        while len(out) < max_scan:
+            points, offset = self.client.scroll(COLLECTION, scroll_filter=self._filter(session_id, file_names),
+                                                limit=256, offset=offset, with_payload=True)
+            out += [Chunk.from_payload(p.payload or {}) for p in points]
+            if offset is None:
+                break
+        return sorted(out, key=lambda c: (c.file_name, int(c.chunk_id.rsplit(":", 1)[1])))
+
     def delete_file(self, session_id: str, file_id: str) -> None:
         self.client.delete(COLLECTION, points_selector=models.FilterSelector(
             filter=self._filter(session_id, file_id=file_id)))
