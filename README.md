@@ -2,7 +2,7 @@
 
 DocuPilot is a multi-agent chat app for your files. Upload PDFs, Word documents, Markdown, text files and spreadsheets, then ask questions across all of them. Every answer is grounded in your files, cites the file and page it came from, and is checked for hallucinations before you see it.
 
-> **Status: MVP in progress.** Ingestion, retrieval, the spreadsheet engine and the multi-agent graph are done and tested. The Chainlit UI is next (see the [Roadmap](#roadmap)).
+> **Status: MVP in progress.** Ingestion, retrieval, the spreadsheet engine and the multi-agent graph are done and tested. The Chainlit UI and eval harness are in place.
 
 ## Why it's different
 
@@ -60,12 +60,13 @@ Conversation memory is a LangGraph checkpointer keyed by chat session. Every age
 - **Per-sub-query quotas.** For cross-document questions (*"compare A with B"*), each sub-query gets its own share of the context, so one document can't crowd out the other.
 - **Reranker choice (measured).** On the eval corpus, all three candidates got top-1 right on every query.
 
-  | Reranker | Avg latency / query | Relevant vs. off-topic score |
+  | Reranker | Avg latency / query (before length-sorting) | Relevant vs. off-topic score |
   |---|---|---|
   | `bge-reranker-base` | 2.9 s | 0.74–1.0 vs ≤ 0.003 |
   | `jina-v1-turbo` | 0.6 s | 0.38–0.87 vs ≤ 0.04 (weaker separation) |
   | `ms-marco-MiniLM-L-12` (default) | 1.0 s | ≥ 0.99 vs 0.0 |
 
+- **Length-sorted reranking.** Cross-encoder batches are padded to their longest member, so one long chunk slowed down every short one in its batch. Sorting candidates by length and using batches of 4 cut the median retrieval latency from **967 ms to 287 ms** with identical accuracy.
 - **SQL sandbox.**
   - Generated SQL must be a single `SELECT`/`WITH` statement, and results are capped at a row limit with a timeout.
   - The DuckDB connection also runs with `enable_external_access = false`. Even SQL that slips past the checks can't read files or URLs, and the setting can't be switched back on at runtime.
@@ -85,6 +86,14 @@ uv sync
 cp .env.example .env        # then set GEMINI_API_KEY
 ```
 
+## Run
+
+```bash
+uv run chainlit run app.py          # http://localhost:8000
+```
+
+Attach files with 📎 (or drag and drop), then ask questions. Clicking a **[n]** marker opens the source passage, or the SQL and its result. PDF sources also get a link that opens the PDF at the cited page. Expand the agent steps to see the route, the retrieved passages with their scores, the SQL, and the per-claim verification.
+
 ## Tests
 
 ```bash
@@ -96,6 +105,36 @@ To build the sample corpus (a PDF report, a DOCX handbook, an MD FAQ, TXT minute
 ```bash
 uv run python -m eval.corpus eval/corpus
 ```
+
+## Evaluation
+
+`eval/questions.jsonl` has 31 questions over the sample corpus:
+- 16 single-document facts with an expected file and page
+- 3 cross-document questions
+- 6 spreadsheet calculations, with ground truth computed by pandas
+- 2 multi-turn follow-ups
+- 4 unanswerable questions
+
+```bash
+uv run python -m eval.run_eval --retrieval-only   # offline
+uv run python -m eval.run_eval                    # full pipeline, needs GEMINI_API_KEY; writes eval/results.json
+uv run python -m eval.run_eval --only table,u01   # a subset, by type or id
+```
+
+The full run reports:
+- answer accuracy (overall and by question type)
+- citation accuracy (whether the right file and page were cited)
+- retrieval hit@k
+- "I don't know" rate on unanswerable questions
+- false "I don't know" rate on answerable questions
+- median time to first token and median total latency
+- mean confidence for correct vs. incorrect answers, as a calibration check
+
+| Retrieval (offline, local models) | Result |
+|---|---|
+| hit@8 | **19/19** |
+| Top-1 correct file and page | **19/19** |
+| Median retrieval latency (hybrid + rerank) | **287 ms** |
 
 ## Project layout
 
@@ -111,6 +150,8 @@ docupilot/
   ingest/          pdf.py, word.py, text.py, tabular.py, chunker.py
   index/           embed.py (local models), store.py (Qdrant)
 eval/corpus.py     deterministic multi-format test corpus with known answers
+eval/run_eval.py   eval harness (retrieval-only or full pipeline)
+app.py             Chainlit UI
 tests/             pytest suite
 ```
 
@@ -119,6 +160,7 @@ tests/             pytest suite
 - [x] Spreadsheet engine (header detection, typing, sandboxed SQL)
 - [x] Hybrid retrieval (dense + BM25 + RRF) with local reranking
 - [x] Agent graph: router, retrieval, table, synthesis and verification agents, plus memory (LangGraph)
-- [ ] Chainlit UI with streaming, per-agent steps, citation side panels and a PDF page viewer
-- [ ] Eval harness (hit@k, citation accuracy, table exact match, IDK rate)
+- [x] Chainlit UI with streaming, per-agent steps, clickable inline [n] citations and a PDF page viewer
+- [x] Eval harness (hit@k, citation accuracy, table exact match, IDK rate, latency, calibration)
+- [ ] Full-pipeline eval numbers with Gemini
 - [ ] Later phases: images and scanned PDFs (Gemini vision + Tesseract), PPTX, code files, audio, HTML

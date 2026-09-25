@@ -1,0 +1,31 @@
+{"id": "s01", "type": "single", "question": "Who is the CEO of Acme Robotics?", "files": ["acme_annual_report_2025.pdf"], "page": 1, "expect": ["Lindqvist"]}
+{"id": "s02", "type": "single", "question": "How much did Acme's revenue grow in 2025?", "files": ["acme_annual_report_2025.pdf"], "page": 1, "expect": ["18%", "412.5"]}
+{"id": "s03", "type": "single", "question": "What was the operating margin in Q3?", "files": ["acme_annual_report_2025.pdf"], "page": 2, "expect": ["13.1"]}
+{"id": "s04", "type": "single", "question": "What was net income in 2024?", "files": ["acme_annual_report_2025.pdf"], "page": 2, "expect": ["21.9"]}
+{"id": "s05", "type": "single", "question": "What is the list price of the Atlas Arm?", "files": ["acme_annual_report_2025.pdf"], "page": 3, "expect": ["64,000", "64000"]}
+{"id": "s06", "type": "single", "question": "How many items per hour can the Atlas Arm pick?", "files": ["acme_annual_report_2025.pdf"], "page": 3, "expect": ["1,100", "1100"]}
+{"id": "s07", "type": "single", "question": "Which company supplies Acme's servo motors?", "files": ["acme_annual_report_2025.pdf"], "page": 4, "expect": ["Kinetix"]}
+{"id": "s08", "type": "single", "question": "What revenue guidance did Acme give for 2026?", "files": ["acme_annual_report_2025.pdf"], "page": 4, "expect": ["480"]}
+{"id": "s09", "type": "single", "question": "How many days of sick leave do employees get?", "files": ["employee_handbook.docx"], "page": 2, "expect": ["12"]}
+{"id": "s10", "type": "single", "question": "How long is parental leave?", "files": ["employee_handbook.docx"], "page": 2, "expect": ["16 weeks", "sixteen weeks"]}
+{"id": "s11", "type": "single", "question": "What is the daily meal allowance when travelling?", "files": ["employee_handbook.docx"], "page": 3, "expect": ["75"]}
+{"id": "s12", "type": "single", "question": "What are the core working hours?", "files": ["employee_handbook.docx"], "page": 1, "expect": ["10:00", "10am", "10 am"]}
+{"id": "s13", "type": "single", "question": "How long does the Scout battery last on a full charge?", "files": ["scout_faq.md"], "page": null, "expect": ["10 hours", "ten hours"]}
+{"id": "s14", "type": "single", "question": "What warranty does Scout come with?", "files": ["scout_faq.md"], "page": null, "expect": ["2-year", "2 year", "two-year", "two year", "2 years"]}
+{"id": "s15", "type": "single", "question": "How many new hires are planned for the Austin facility?", "files": ["board_minutes.txt"], "page": null, "expect": ["120"]}
+{"id": "s16", "type": "single", "question": "Who has to present the currency hedging plan?", "files": ["board_minutes.txt"], "page": null, "expect": ["Okafor"]}
+{"id": "c01", "type": "cross", "question": "When will the Austin facility open, and is it mentioned in the annual report's outlook?", "files": ["board_minutes.txt", "acme_annual_report_2025.pdf"], "page": null, "expect": ["Q2 2026"]}
+{"id": "c02", "type": "cross", "question": "What is Scout's maximum payload, and how many Scout units were shipped in 2025?", "files": ["scout_faq.md", "acme_annual_report_2025.pdf"], "page": null, "expect": ["150"], "expect_all": ["150", "1,850"]}
+{"id": "c03", "type": "cross", "question": "What supplier risk does the annual report describe, and who on the board was assigned to address it?", "files": ["acme_annual_report_2025.pdf", "board_minutes.txt"], "page": null, "expect": ["Kinetix"], "expect_all": ["Kinetix", "Raman"]}
+{"id": "t01", "type": "table", "question": "What is the total revenue across all orders in the sales spreadsheet?", "files": ["sales_2025.xlsx"], "expect": ["{total_revenue}"]}
+{"id": "t02", "type": "table", "question": "Which region had the highest order revenue?", "files": ["sales_2025.xlsx"], "expect": ["{top_region}"]}
+{"id": "t03", "type": "table", "question": "How many Atlas Arm units were ordered in total?", "files": ["sales_2025.xlsx"], "expect": ["{atlas_units}"]}
+{"id": "t04", "type": "table", "question": "How many customers have churned?", "files": ["customers.csv"], "expect": ["{churned_customers}"]}
+{"id": "t05", "type": "table", "question": "How many enterprise customers are there?", "files": ["customers.csv"], "expect": ["{enterprise_customers}"]}
+{"id": "t06", "type": "table", "question": "Did the West region beat its revenue target, and by how much?", "files": ["sales_2025.xlsx"], "expect": ["{west_vs_target}"]}
+{"id": "f01", "type": "followup", "turns": ["What is Scout's maximum payload?", "And how long is its warranty?"], "files": ["scout_faq.md"], "page": null, "expect": ["2-year", "2 year", "two-year", "two year", "2 years"]}
+{"id": "f02", "type": "followup", "turns": ["What was Q4 revenue according to the annual report?", "And what about Q1?"], "files": ["acme_annual_report_2025.pdf"], "page": 2, "expect": ["92.1"]}
+{"id": "u01", "type": "unanswerable", "question": "What is Acme's revenue for 2031?"}
+{"id": "u02", "type": "unanswerable", "question": "Who is the CFO of Nordfrakt Logistics?"}
+{"id": "u03", "type": "unanswerable", "question": "What is the capital of Australia?"}
+{"id": "u04", "type": "unanswerable", "question": "What is the Scout's IP rating for water resistance?"}
