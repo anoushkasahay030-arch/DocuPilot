@@ -36,9 +36,10 @@ class LLM:
 
     def _config(self, model: str, system: str | None, temperature: float, fast: bool, **extra) -> types.GenerateContentConfig:
         cfg = dict(system_instruction=system, temperature=temperature, **extra)
-        if fast and model not in self._no_thinking_cfg:
+        budget = 0 if fast else self.settings.strong_thinking_budget
+        if budget is not None and model not in self._no_thinking_cfg:
             # Routing / SQL / verification don't benefit from long thinking; keep them snappy.
-            cfg["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+            cfg["thinking_config"] = types.ThinkingConfig(thinking_budget=budget)
         return types.GenerateContentConfig(**cfg)
 
     async def _call(self, fn, model: str, make_cfg):

@@ -2,7 +2,7 @@
 
 DocuPilot is a multi-agent chat app for your files. Upload PDFs, Word documents, Markdown, text files and spreadsheets, then ask questions across all of them. Every answer is grounded in your files, cites the file and page it came from, and is checked for hallucinations before you see it.
 
-> **Status: MVP in progress.** Ingestion, retrieval, the spreadsheet engine and the multi-agent graph are done and tested. The Chainlit UI and eval harness are in place.
+> **Status: MVP complete.** On the 31-question eval it answers 27/27 answerable questions correctly with the right citation, and says "I don't know" on 4/4 unanswerable ones (see [Evaluation](#evaluation)).
 
 ## Why it's different
 
@@ -27,7 +27,7 @@ question ─► Router ──┬─► Retrieval agent (hybrid RRF ─► cross-
 | Component | Implementation |
 |---|---|
 | Orchestration | LangGraph |
-| LLM | Google Gemini (`google-genai`). A Flash model handles routing, SQL and verification; a Pro model handles synthesis. Both are configurable. |
+| LLM | Google Gemini (`google-genai`). `gemini-3.5-flash` handles routing, SQL and verification; `gemini-3.8-flash` handles synthesis. Both are configurable in `.env`. |
 | Embeddings | `BAAI/bge-small-en-v1.5` (dense) + `Qdrant/bm25` (sparse), local |
 | Reranker | `Xenova/ms-marco-MiniLM-L-12-v2` cross-encoder, local |
 | Vector DB | Qdrant, embedded mode (no server) |
@@ -42,7 +42,7 @@ question ─► Router ──┬─► Retrieval agent (hybrid RRF ─► cross-
 | **Router / Planner** | Flash, JSON | Rewrites follow-ups into a standalone question using conversation memory (*"and its warranty?"* becomes *"What is Scout's warranty?"*). Picks a route: `docs`, `table`, `both` (run in parallel), `summary` or `chitchat`. Splits multi-part questions into search sub-queries. Downgrades routes that can't run with the files loaded. |
 | **Retrieval** | local | Hybrid search, then rerank, with a quota per sub-query. The `summary` route instead samples passages evenly across the whole file (beginning, middle and end), because top-k similarity is wrong for "summarize this". A retry widens the search: double k, no file filter, and the user's original wording added as a query. |
 | **Table / Data** | Flash, JSON | Generates DuckDB SQL (1–3 queries) from the tables' schema cards and runs them in the sandbox. On an error it sends the error back to the model and fixes the query, up to 2 times. SQL results become citable sources. |
-| **Synthesis** | Pro, streamed | Writes one answer from numbered sources and puts `[n]` after every factual sentence. If nothing clears the relevance threshold, it doesn't call the LLM at all: it widens the search once, then says *"I couldn't find that in your files"*, listing what it searched and the closest near-misses. |
+| **Synthesis** | Strong model, streamed | Writes one answer from numbered sources and puts `[n]` after every factual sentence. If nothing clears the relevance threshold, it doesn't call the LLM at all: it widens the search once, then says *"I couldn't find that in your files"*, listing what it searched and the closest near-misses. |
 | **Verifier** | Flash, JSON | Splits the answer into atomic claims and checks each against its cited source (supported / partial / unsupported). Confidence = 75% claim support + 25% relevance of the best cited source. Unsupported claims are removed. Low confidence triggers one wider retry. If no claim is supported, the answer becomes an explicit "I don't know". |
 
 Conversation memory is a LangGraph checkpointer keyed by chat session. Every agent streams its reasoning (route, passages with scores, SQL and results, claim verdicts) to the UI.
@@ -58,6 +58,9 @@ Conversation memory is a LangGraph checkpointer keyed by chat session. Every age
   - The display text stays markdown.
 - **Hybrid search.** Dense and BM25 candidates are fused with Reciprocal Rank Fusion, then reranked by the cross-encoder. BM25 catches rare exact terms such as supplier names and SKUs that dense vectors miss.
 - **Per-sub-query quotas.** For cross-document questions (*"compare A with B"*), each sub-query gets its own share of the context, so one document can't crowd out the other.
+- **Target files are a hint, not a filter.** The router's guess of the relevant files only guarantees that each gets searched. An earlier version filtered the search to those files. On *"When will the Austin facility open, and is it in the annual report?"* the router named only the report, so the board minutes holding the answer were never searched.
+- **Multi-hop context.** The reranker scores each passage against the whole question. For *"What supplier risk does the report describe, and who was assigned to address it?"*, the minutes passage naming the person scored 0.0. So once any passage clears the relevance threshold, the top 4 are kept as context regardless, and the verifier guards against noise.
+- **Source reconciliation.** When a document states one figure and a spreadsheet computes another (e.g. 1,850 units *shipped* in the report vs. 237 units *ordered* in the sales sheet), the answer gives both and names each source instead of silently picking one.
 - **Reranker choice (measured).** On the eval corpus, all three candidates got top-1 right on every query.
 
   | Reranker | Avg latency / query (before length-sorting) | Relevant vs. off-topic score |
@@ -130,11 +133,28 @@ The full run reports:
 - median time to first token and median total latency
 - mean confidence for correct vs. incorrect answers, as a calibration check
 
-| Retrieval (offline, local models) | Result |
+### Results
+
+Full pipeline, with the default models (`gemini-3.5-flash` + `gemini-3.8-flash`):
+
+| Metric | Result |
 |---|---|
-| hit@8 | **19/19** |
-| Top-1 correct file and page | **19/19** |
-| Median retrieval latency (hybrid + rerank) | **287 ms** |
+| Answer accuracy (answerable) | **27/27 (100%)** |
+| · single-document facts | 16/16 |
+| · cross-document | 3/3 |
+| · spreadsheet calculations | 6/6 |
+| · multi-turn follow-ups | 2/2 |
+| Citation accuracy (right file and page cited) | **27/27 (100%)** |
+| Retrieval hit@8 | **21/21 (100%)** |
+| "I don't know" on unanswerable | **4/4 (100%)** |
+| False "I don't know" on answerable | **0/27** |
+| Median time to first token / total (incl. verification) | 5.1 s / 7.3 s |
+
+The first version scored 24/27 with 3/4 "I don't know". All the misses were cross-document questions; the fixes are described under [Engineering notes](#engineering-notes). All three model pairings tried after those fixes scored 100% on this set, so the defaults favour the stronger models. If you want faster responses, `GEMINI_MODEL=gemini-3.1-flash-lite` plus `GEMINI_STRONG_MODEL=gemini-3.5-flash` with `STRONG_THINKING_BUDGET=0` scored the same here, at 3.9 s to first token and 5.6 s total. (`gemini-2.5-pro` isn't available to new API keys, and the 3.x Pro models took 6–26 s per call.)
+
+Caveat: 31 questions over a synthetic corpus is a regression suite, not a benchmark. It catches breakage and validates each engineering choice, but it isn't evidence of general accuracy.
+
+Retrieval alone (offline, local models): top-1 correct file and page on 19/19 questions, with a median of 287 ms for hybrid search plus reranking.
 
 ## Project layout
 
@@ -162,5 +182,5 @@ tests/             pytest suite
 - [x] Agent graph: router, retrieval, table, synthesis and verification agents, plus memory (LangGraph)
 - [x] Chainlit UI with streaming, per-agent steps, clickable inline [n] citations and a PDF page viewer
 - [x] Eval harness (hit@k, citation accuracy, table exact match, IDK rate, latency, calibration)
-- [ ] Full-pipeline eval numbers with Gemini
+- [x] Full-pipeline eval numbers with Gemini
 - [ ] Later phases: images and scanned PDFs (Gemini vision + Tesseract), PPTX, code files, audio, HTML

@@ -114,7 +114,7 @@ def test_unsafe_sql_never_executes(ws):
 def test_both_route_runs_agents_in_parallel(ws):
     llm = FakeLLM(route("both", "Compare reported Q4 revenue with the orders data",
                         ["Q4 revenue annual report"]), sql=["SELECT SUM(revenue) FROM sales_2025__orders"],
-                  answers=["Report says 117.3M [1]; orders total is X [2]."])
+                  answers=["Report says 117.3M [1]; orders total is X " + "".join(f"[{n}]" for n in range(2, 20)) + "."])
     state, _, _ = run(ws, llm, "compare")
     assert state["chunks"] and state["table_results"]
     kinds = {c.kind for c in state["citations"]}

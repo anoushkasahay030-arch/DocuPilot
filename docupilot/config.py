@@ -9,8 +9,10 @@ class Settings(BaseSettings):
 
     # LLM
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
-    gemini_strong_model: str = "gemini-2.5-pro"
+    gemini_model: str = "gemini-3.5-flash"
+    gemini_strong_model: str = "gemini-3.8-flash"
+    # Thinking budget (tokens) for the synthesis model; None = model default, 0 = off (fastest first token).
+    strong_thinking_budget: int | None = None
 
     # Storage
     data_dir: Path = Path("data")

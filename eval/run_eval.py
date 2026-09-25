@@ -29,7 +29,7 @@ from docupilot.workspace import Workspace
 from eval.corpus import build_corpus, table_facts
 
 HERE = Path(__file__).parent
-_IDK = re.compile(r"couldn'?t find|could not find|not (?:mentioned|specified|stated|included|available|provided|"
+_IDK = re.compile(r"couldn'?t find|can(?:not|'t) answer|could not find|not (?:mentioned|specified|stated|included|available|provided|"
                   r"contain)|no information|doesn'?t (?:mention|specify|say|contain|include)|does not (?:mention|"
                   r"specify|say|contain|include)|don'?t (?:have|contain)|isn'?t (?:mentioned|specified)", re.I)
 

@@ -67,3 +67,9 @@ def test_dedupe_and_unsupported(ws, corpus, tmp_path):
 
 def test_session_isolation(ws):
     assert retrieve(ws.store, ["payload"], "other-session") == []
+
+
+def test_ensure_files_adds_missing_file_without_filtering_others(ws):
+    res = retrieve(ws.store, ["servo motor supplier risk"], ws.session_id, k=2, ensure_files=["board_minutes.txt"])
+    files = {r.chunk.file_name for r in res}
+    assert "acme_annual_report_2025.pdf" in files and "board_minutes.txt" in files

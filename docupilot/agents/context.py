@@ -42,10 +42,20 @@ class Source:
     citation: Citation
 
 
-def build_sources(chunks: list[RetrievedChunk], tables: list[TableResult], threshold: float) -> list[Source]:
+def build_sources(chunks: list[RetrievedChunk], tables: list[TableResult], threshold: float,
+                  min_keep: int = 4) -> list[Source]:
+    """Numbered sources for synthesis/verification.
+
+    Passages above the relevance threshold are always kept. If at least one passes, the top `min_keep`
+    are kept regardless: the reranker scores each passage against the whole question, so the evidence
+    for the second hop of a multi-part question can score ~0 while still being needed.
+    """
     sources: list[Source] = []
-    for r in chunks:
-        if r.score < threshold:
+    answerable = any(r.score >= threshold for r in chunks)
+    ranked = sorted(chunks, key=lambda r: r.score, reverse=True)
+    keep = {id(r) for r in ranked[:min_keep]} if answerable else set()
+    for r in ranked:
+        if r.score < threshold and id(r) not in keep:
             continue
         c = r.chunk
         n = len(sources) + 1

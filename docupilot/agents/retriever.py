@@ -38,14 +38,14 @@ async def retriever_node(state: GraphState, config: RunnableConfig) -> GraphStat
         return {"chunks": picked}
 
     queries = list(state.get("queries") or [state["standalone"]])
-    file_names = state.get("target_files") or None
+    targets = [f for f in state.get("target_files") or [] if ws.file_by_name(f)]
     k, prefetch = s.top_k, s.prefetch_k
     if attempt > 0:
-        # Retry: search wider, drop the file filter, and also try the user's original wording.
-        k, prefetch, file_names = s.top_k * 2, s.prefetch_k * 2, None
+        # Retry: search wider and also try the user's original wording.
+        k, prefetch = s.top_k * 2, s.prefetch_k * 2
         queries.append(state["question"])
 
-    results = await asyncio.to_thread(retrieve, ws.store, queries, ws.session_id, file_names=file_names,
+    results = await asyncio.to_thread(retrieve, ws.store, queries, ws.session_id, ensure_files=targets,
                                       k=k, prefetch_k=prefetch, candidates=max(24, k * 3))
     title = f"Retrieved {len(results)} passages" + (" (widened search)" if attempt else "")
     emit("step", agent="Retrieval", title=title,
