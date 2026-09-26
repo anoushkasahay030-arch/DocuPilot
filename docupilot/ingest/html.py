@@ -6,6 +6,7 @@ from pathlib import Path
 from bs4 import BeautifulSoup, NavigableString, Tag
 
 from docupilot.ingest.code import code_sections
+from docupilot.ingest.nextjs import embedded_page
 from docupilot.ingest.text import HeadingStack, table_markdown
 from docupilot.models import Section
 
@@ -13,6 +14,19 @@ from docupilot.models import Section
 def parse_html(path: Path, file_name: str, *, target_tokens: int = 450) -> list[Section]:
     soup = BeautifulSoup(path.read_bytes(), "html.parser")
     title = soup.title.get_text(" ", strip=True) if soup.title else ""
+    # Keep the payload available until we know whether normal HTML is readable.
+    scripts = [str(tag) for tag in soup.find_all("script") if not tag.get("src")]
+    sections = _parse_dom(soup, file_name, title=title, target_tokens=target_tokens)
+    if not sections:
+        recovered = embedded_page(BeautifulSoup("".join(scripts), "html.parser"))
+        if recovered is not None:
+            sections = _parse_dom(recovered, file_name, title=title, target_tokens=target_tokens)
+            for section in sections:
+                section.heading_path = " > ".join(filter(None, ["Embedded page content", section.heading_path]))
+    return sections
+
+
+def _parse_dom(soup: BeautifulSoup, file_name: str, *, title: str, target_tokens: int) -> list[Section]:
     for tag in list(soup.find_all(True)):
         if tag.attrs is None:  # removed with an ancestor
             continue

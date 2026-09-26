@@ -58,6 +58,8 @@ For web imports, paste an HTTP(S) URL with your question, for example `https://e
 
 Imports download the supplied pages (following up to five redirects); parsing and Q&A remain local. Each response is limited to `MAX_FILE_MB` and network operations have a 30-second timeout. The final URL is retained with the source. Repeated URLs, including fragment links and redirect aliases, reuse the page already loaded in that chat. Start a new chat to fetch a fresh snapshot. Visible footer copyright and legal notices are retained as citable content.
 
+When a page has no readable HTML, the importer also checks for supported embedded Next.js App Router page data. It recovers server-provided text, headings, tables and code without executing JavaScript or downloading scripts, and labels these sources `Embedded page content`. Hidden elements, unused error/loading views and unrelated application data are excluded. This is a limited fallback, not full browser rendering: if the page still has no extractable content, open it in your browser and upload a PDF or screenshot.
+
 ### Images and scanned documents
 
 Install the separate local vision model before uploading images or scanned PDFs:
@@ -346,7 +348,7 @@ The first version scored 24/27, with 3/4 "I don't know" on unanswerable question
 - **Unsupported formats.** Legacy DOC/PPT/XLS, archives, audio and video are not supported.
 - **Visual evidence is an extraction, not a pixel-level fact-check.** The verifier sees the vision model's text, so an OCR error or an invented description can survive verification. Tiny text, handwriting, dense charts and image downscaling can lose details. Visual extraction is performed at upload time; follow-up questions search that extraction. The recorded evaluation does not measure vision accuracy.
 - **PDF and slide visuals.** Native PDF text pages use layout-aware text parsing; their embedded charts are not automatically interpreted. Export such charts as images to ask visual questions. PPTX native charts expose stored values, but SmartArt, embedded OLE objects, vector pictures and full slide-layout rendering are not supported. Tesseract integration still depends on the local installation.
-- **Web pages.** Static HTML only: no JavaScript rendering, login session, crawling, CSS layout interpretation or remote image extraction. Save authenticated pages as HTML or upload a screenshot. URL import intentionally accesses the address supplied by the user, including intranet addresses; this is a local, single-user app, not a hardened public URL-fetching service.
+- **Web pages.** Static HTML plus a limited fallback for embedded Next.js page data: no JavaScript rendering, login session, crawling, CSS layout interpretation or remote image extraction. The fallback cannot evaluate client-component logic or recover content loaded by later API calls. Save authenticated or unsupported dynamic pages as a PDF or upload a screenshot. URL import intentionally accesses the address supplied by the user, including intranet addresses; this is a local, single-user app, not a hardened public URL-fetching service.
 - **Code.** Files are split along line boundaries, with long minified lines split to fit the chunk budget. There is no execution, repository-wide dependency resolution or language-server analysis.
 - **DOCX page numbers are approximate** (shown as `p. ~N`) unless Word saved rendered page breaks. DOCX has no fixed pages, since pagination depends on the renderer.
 - **Complex spreadsheets.**

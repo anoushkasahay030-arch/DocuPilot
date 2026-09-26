@@ -140,6 +140,9 @@ class Workspace:
                                 overlap_tokens=s.chunk_overlap_tokens, max_table_tokens=s.max_table_chunk_tokens)
         if not chunks:
             detail = " ".join(info.warnings)
+            if ext in HTML_TYPES:
+                detail = ("This page may need JavaScript or a login. Open it in your browser "
+                          "and upload a PDF or screenshot of the content.")
             raise ValueError(f"{file_name}: no extractable content. {detail}".strip())
         self.store.upsert(chunks, on_progress=lambda done, total: say(f"{file_name}: indexed {done}/{total} chunks")
                           if total > 64 and (done == total or done % 256 == 0) else None)

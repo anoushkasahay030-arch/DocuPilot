@@ -74,3 +74,23 @@ Chainlit bundles react-dropzone 14.2.3, whose native-picker conversion discards 
 - `uv lock --check --offline` and `git diff --check`: passed.
 - The restarted app's settings endpoint serves the corrected upload filter.
 - Generated `:memory:.ses` runtime files are ignored by Git.
+
+## Embedded Next.js import regression
+
+The empty-content failure on `https://nova9.ai/about` was reproduced on 2026-09-26.
+Its response contained a loading shell and streamed Next.js page data. The new
+data-only fallback recovered eight passages from the captured response, retaining
+headings, the footer and source URL while excluding the unused 404 view. No page
+scripts were executed; the captured page is not part of the committed test corpus.
+
+- Full suite: **248 passed**, including synthetic streamed records, Unicode text,
+  hidden/error/loading exclusions, malformed and cyclic data, expansion limits,
+  code/table structure, static-HTML precedence and session/URL provenance.
+- Formats retrieval: **12/12 hit@8 and 12/12 top-1**, median 171 ms, using the
+  existing local search models and scoring version 2. Output:
+  `eval/results-formats-nextjs-retrieval.json` (ignored by Git).
+- Manual retrieval over the captured public page ranked the correct passage first
+  for the CTO and footer-year questions. The generic query `Find the copyright text`
+  remained below the relevance threshold despite the notice being indexed; this
+  import fix does not establish general retrieval or answer accuracy. No live LLM
+  pipeline or vision evaluation was run for this change.
