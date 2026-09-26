@@ -70,6 +70,7 @@ Conversation memory is a LangGraph checkpointer keyed by chat session. Every age
   | `ms-marco-MiniLM-L-12` (default) | 1.0 s | ≥ 0.99 vs 0.0 |
 
 - **Length-sorted reranking.** Cross-encoder batches are padded to their longest member, so one long chunk slowed down every short one in its batch. Sorting candidates by length and using batches of 4 cut the median retrieval latency from **967 ms to 287 ms** with identical accuracy.
+- **Truly offline after first run.** Models load straight from the local cache with zero network calls, verified by logging outgoing HTTP. fastembed normally re-checks the Hugging Face Hub on every start, and newer `huggingface_hub` rejects fastembed's partial BM25 snapshot in offline mode, so we point fastembed at the cached snapshot directly.
 - **SQL sandbox.**
   - Generated SQL must be a single `SELECT`/`WITH` statement, and results are capped at a row limit with a timeout.
   - The DuckDB connection also runs with `enable_external_access = false`. Even SQL that slips past the checks can't read files or URLs, and the setting can't be switched back on at runtime.

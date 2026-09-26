@@ -131,7 +131,7 @@ def citation_element(c: Citation) -> cl.Text:
 
 
 def sources_footer(ws: Workspace, state: dict) -> tuple[str, list]:
-    citations: list[Citation] = state.get("citations") or []
+    citations: list[Citation] = sorted(state.get("citations") or [], key=lambda c: c.n)
     elements: list = []
     lines: list[str] = []
     pdf_pages: set[tuple[str, int]] = set()

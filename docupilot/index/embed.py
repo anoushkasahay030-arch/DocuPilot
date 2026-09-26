@@ -3,15 +3,18 @@
 Nothing here calls a remote API — documents are indexed fully on-device.
 """
 
+import logging
 import math
 import threading
 from functools import lru_cache
+from pathlib import Path
 
 from fastembed import SparseEmbedding, SparseTextEmbedding, TextEmbedding
 from fastembed.rerank.cross_encoder import TextCrossEncoder
 
 from docupilot.config import get_settings
 
+log = logging.getLogger(__name__)
 _lock = threading.Lock()
 # Cross-encoder input cap (~400 tokens); the relevant part of a chunk is almost always near its start.
 _RERANK_CHARS = 1600
@@ -23,22 +26,39 @@ def _cache_dir() -> str:
     return str(d)
 
 
+def _load(cls, name: str):
+    """Loads from the local cache without touching the network; downloads only on first use."""
+    cache = _cache_dir()
+    with _lock:
+        # fastembed downloads only the files it needs (e.g. a few BM25 stopword lists); newer huggingface_hub
+        # rejects such partial snapshots offline, so prefer pointing fastembed at the cached snapshot directly.
+        snapshots = sorted(Path(cache).glob(f"models--{name.replace('/', '--')}/snapshots/*"))
+        if snapshots:
+            try:
+                return cls(name, cache_dir=cache, specific_model_path=str(snapshots[-1]))
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            return cls(name, cache_dir=cache, local_files_only=True)
+        except Exception:  # noqa: BLE001 - not cached yet
+            pass
+        log.info("Downloading %s (first run only)", name)
+        return cls(name, cache_dir=cache)
+
+
 @lru_cache
 def dense_model() -> TextEmbedding:
-    with _lock:
-        return TextEmbedding(get_settings().dense_model, cache_dir=_cache_dir())
+    return _load(TextEmbedding, get_settings().dense_model)
 
 
 @lru_cache
 def sparse_model() -> SparseTextEmbedding:
-    with _lock:
-        return SparseTextEmbedding(get_settings().sparse_model, cache_dir=_cache_dir())
+    return _load(SparseTextEmbedding, get_settings().sparse_model)
 
 
 @lru_cache
 def reranker() -> TextCrossEncoder:
-    with _lock:
-        return TextCrossEncoder(get_settings().rerank_model, cache_dir=_cache_dir())
+    return _load(TextCrossEncoder, get_settings().rerank_model)
 
 
 @lru_cache
