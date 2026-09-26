@@ -1,18 +1,19 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # LLM
-    gemini_api_key: str = ""
-    gemini_model: str = "gemini-3.5-flash"
-    gemini_strong_model: str = "gemini-3.8-flash"
-    # Thinking budget (tokens) for the synthesis model; None = model default, 0 = off (fastest first token).
-    strong_thinking_budget: int | None = None
+    # Local LLM (Ollama; no API key required)
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "qwen2.5:7b"
+    ollama_strong_model: str | None = None  # unset = reuse ollama_model
+    ollama_num_ctx: int = Field(default=16384, gt=0)
+    ollama_timeout_s: float = Field(default=300, gt=0)
 
     # Storage
     data_dir: Path = Path("data")

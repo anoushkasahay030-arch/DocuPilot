@@ -57,7 +57,7 @@ Attach files with the 📎 button (or drag & drop) and ask anything about them.
 - Every claim is cited: click a **[n]** marker to see the exact passage, page, or the SQL behind a number.
 - Spreadsheets are queried with real SQL, so totals and rankings are computed rather than guessed.
 - Answers are fact-checked and get a confidence rating. If it's not in your files, I'll say so.
-- Parsing, search and ranking run locally; only the few relevant passages reach the LLM.
+- Parsing, search, ranking and answers run locally with the default Ollama setup. No API key is needed.
 """
 
 

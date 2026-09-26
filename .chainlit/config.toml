@@ -1,4 +1,7 @@
 [project]
+# Use direct WebSocket connections to avoid oversized HTTP polling packet batches.
+transports = ["websocket"]
+
 # List of environment variables to be provided by each user to use the app.
 user_env = []
 

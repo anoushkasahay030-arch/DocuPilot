@@ -1,6 +1,6 @@
 """DocuPilot eval harness.
 
-    uv run python -m eval.run_eval                   # full pipeline (needs GEMINI_API_KEY)
+    uv run python -m eval.run_eval                   # full pipeline (needs local Ollama + model)
     uv run python -m eval.run_eval --retrieval-only  # offline: retrieval hit@k only
 
 Metrics
@@ -15,10 +15,13 @@ import argparse
 from typing import Any
 import asyncio
 import json
+import platform
 import re
 import statistics
 import time
 from pathlib import Path
+from datetime import datetime, timezone
+from importlib.metadata import version
 
 from docupilot.agents.context import Deps
 from docupilot.agents.graph import ask, build_graph
@@ -207,7 +210,19 @@ def main() -> None:
     summary = summarize(results)
     print_summary(summary)
     out = HERE / "results.json"
-    out.write_text(json.dumps({"summary": summary, "results": results}, indent=2, default=str))
+    settings = get_settings()
+    metadata = {
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+        "provider": "ollama",
+        "model": settings.ollama_model,
+        "strong_model": settings.ollama_strong_model or settings.ollama_model,
+        "num_ctx": settings.ollama_num_ctx,
+        "timeout_s": settings.ollama_timeout_s,
+        "ollama_client_version": version("ollama"),
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+    }
+    out.write_text(json.dumps({"metadata": metadata, "summary": summary, "results": results}, indent=2, default=str))
     print(f"\nWrote {out}")
 
 
