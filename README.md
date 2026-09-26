@@ -7,7 +7,7 @@ DocuPilot is a multi-agent chat app for your files. Upload documents, slides, sp
 | | What you get |
 |---|---|
 | **Citations** | Each claim links to its file, **page number and section path** (e.g. `report.pdf, p. 3, 3 Products > 3.1 Atlas Arm`). Click a `[n]` marker to see the exact passage; PDF sources open at the cited page. |
-| **Spreadsheets** | CSV and XLSX files become SQL tables. Totals, rankings and filters are **computed**, and the SQL is shown as the source. |
+| **Spreadsheets** | CSV/TSV and XLSX/XLSM files become SQL tables. Totals, rankings and filters are **computed**, and the SQL is shown as the source. |
 | **Trust** | A verifier checks every claim against its source, removes unsupported ones, and rates confidence. If the answer isn't in your files, it says so. |
 | **Privacy** | Parsing, search, reranking and LLM inference run **locally** with the default Ollama configuration. No API key or hosted inference service is required. |
 
@@ -26,12 +26,15 @@ DocuPilot is a multi-agent chat app for your files. Upload documents, slides, sp
 
 Open the Ollama application before pulling the model, or run `OLLAMA_NO_CLOUD=1 ollama serve` in a separate terminal. This local-only server setting also disables Ollama cloud features. Do not start a second server if Ollama is already running.
 
+Clone this repository and change into its root directory, then run:
+
 ```bash
-git clone <this repo> && cd DocuPilot
 uv sync                     # creates .venv and installs dependencies
-cp .env.example .env        # optional: defaults work without any API keys
+cp -n .env.example .env     # optional: preserves an existing .env; defaults need no API keys
 ollama pull qwen2.5:7b      # one-time model download
 ```
+
+Run development commands from the repository root with Python 3.12, as pinned in `.python-version`.
 
 ### Run the app
 
@@ -51,12 +54,12 @@ uv run chainlit run app.py          # opens http://localhost:8000
 | Slides | PPTX text, grouped shapes, tables, native chart values, speaker notes and raster pictures; citations identify the slide |
 | Spreadsheets | CSV, TSV, XLSX, XLSM; each sheet becomes a DuckDB table for structured filters, aggregates, rankings and joins |
 | Images | PNG, JPEG, WebP, BMP, TIFF and GIF; OCR transcription plus visual descriptions of scans, charts and screenshots; multipage/animated images retain frame labels |
-| Code | Python, JS/TS/JSX/TSX, Java, C/C++, C#, Go, Rust, Ruby, PHP, Swift, Kotlin, Scala, shell, SQL, R, Lua, Perl, Objective-C, Vue/Svelte, CSS/SCSS, JSON/YAML/TOML/XML/INI/CFG, Dockerfile and Makefile; whitespace and line ranges are preserved; code is read, never executed |
+| Code | Python, JS/TS/JSX/TSX, Java, C/C++, C#, Go, Rust, Ruby, PHP, Swift, Kotlin, Scala, shell/PowerShell, SQL, R, Lua, Perl, Objective-C, Vue/Svelte, CSS/SCSS, JSON/YAML/TOML/XML/INI/CFG; special filenames `Dockerfile`, `Containerfile`, `Makefile`, `CMakeLists.txt`, `.gitignore` and `.dockerignore`; whitespace and line ranges are preserved; code is read, never executed |
 | HTML/web pages | `.html`, `.htm`, `.xhtml`, or pasted HTTP(S) URLs; visible static text, headings, tables, code, footer notices and image alt text; scripts and remote resources are not loaded |
 
 For web imports, paste an HTTP(S) URL with your question, for example `https://example.com/page` followed by `Find the copyright text` on the next line. Links within a sentence also work. The app imports each linked page before answering; a URL by itself just loads the page for later questions. `/url https://example.com/page` remains supported. URLs inside inline or fenced code examples are not imported automatically.
 
-Imports download the supplied pages (following up to five redirects); parsing and Q&A remain local. Each response is limited to `MAX_FILE_MB` and network operations have a 30-second timeout. The final URL is retained with the source. Repeated URLs, including fragment links and redirect aliases, reuse the page already loaded in that chat. Start a new chat to fetch a fresh snapshot. Visible footer copyright and legal notices are retained as citable content.
+Imports download the supplied pages (following up to five redirects); parsing and Q&A remain local. Each response is limited to `MAX_FILE_MB`; network operations have a 30-second timeout, with 5 seconds to connect. The final URL is retained with the source. Repeated URLs, including fragment links and redirect aliases, reuse the page already loaded in that chat. Start a new chat to fetch a fresh snapshot. Visible footer copyright and legal notices are retained as citable content. If an import fails, the app reports the error and stops before answering that message.
 
 When a page has no readable HTML, the importer also checks for supported embedded Next.js App Router page data. It recovers server-provided text, headings, tables and code without executing JavaScript or downloading scripts, and labels these sources `Embedded page content`. Hidden elements, unused error/loading views and unrelated application data are excluded. This is a limited fallback, not full browser rendering: if the page still has no extractable content, open it in your browser and upload a PDF or screenshot.
 
@@ -90,11 +93,15 @@ uv run python -m eval.corpus eval/corpus --dataset all
 | `OLLAMA_VISION_MODEL` | `qwen2.5vl:3b` | Local image OCR and visual descriptions; separate model download |
 | `OLLAMA_NUM_CTX` | `16384` | Context window in tokens; larger windows require more memory |
 | `OLLAMA_TIMEOUT_S` | `300` | Request/read timeout in seconds; connection timeout is 5 seconds |
+| `DENSE_MODEL` / `SPARSE_MODEL` | `BAAI/bge-small-en-v1.5` / `Qdrant/bm25` | Local semantic and keyword embedding models |
 | `RERANK_MODEL` | `Xenova/ms-marco-MiniLM-L-12-v2` | Local cross-encoder (`BAAI/bge-reranker-base` is also supported, but slower) |
-| `TOP_K` / `PREFETCH_K` | `8` / `40` | Passages given to the LLM / candidates fetched per search mode |
+| `CHUNK_TOKENS` / `CHUNK_OVERLAP_TOKENS` | `450` / `60` | Text chunk target and overlap; token counts are estimated from character counts |
+| `MAX_TABLE_CHUNK_TOKENS` | `900` | Table chunk target; oversized tables split between rows with headers repeated |
+| `TOP_K` / `PREFETCH_K` | `8` / `40` | Base retrieval count / candidates fetched per search mode; sub-query quotas, file coverage and retries can increase the passage count |
 | `RELEVANCE_THRESHOLD` | `0.08` | Reranker score below which a passage counts as irrelevant |
-| `CONFIDENCE_THRESHOLD` | `0.5` | Below this, the verifier triggers one wider retry |
-| `MAX_FILES` / `MAX_FILE_MB` | `25` / `200` | Upload limits |
+| `CONFIDENCE_THRESHOLD` | `0.5` | Below this, the verifier triggers one retry, except for summaries |
+| `SQL_MAX_ROWS` / `SQL_TIMEOUT_S` | `200` / `10` | Maximum returned rows and execution timeout in seconds per SQL query; source previews show up to 50 rows |
+| `MAX_FILES` / `MAX_FILE_MB` | `25` / `200` | Files per chat, including imported web pages / size limit per file or web page |
 | `USE_OCR` | `false` | OCR for PDF pages without a text layer (Tesseract) |
 | `IMAGE_MAX_SIDE` | `2048` | Maximum image width/height sent to the local vision model |
 | `IMAGE_MAX_FRAMES` | `50` | Reject images above this frame/page count rather than silently truncating them |
@@ -102,13 +109,15 @@ uv run python -m eval.corpus eval/corpus --dataset all
 
 No `.env` file is required. Existing `GEMINI_*` and `STRONG_THINKING_BUDGET` settings are ignored and can be removed. Keep unrelated `.env` settings when upgrading.
 
+Defaults are defined in [docupilot/config.py](docupilot/config.py); [.env.example](.env.example) lists common overrides. Restart the app after changing settings. The upload picker has separate `max_files` and `max_size_mb` limits in [.chainlit/config.toml](.chainlit/config.toml); update those too when changing upload limits.
+
 To change models, pull a local chat/instruct model and set `OLLAMA_MODEL` to its exact tag, for example `llama3.2:3b`, `mistral:7b`, or `phi3:mini`. Leave `OLLAMA_STRONG_MODEL` unset to use that same model everywhere. Alternative models need their own quality checks. Use local model tags; the application has no cloud fallback or API-key configuration.
 
 ### Tests and evaluation
 
 ```bash
 uv run pytest                                 # offline after model caching; no API key or Ollama server needed
-uv run python -m eval.run_eval --retrieval-only # retrieval metrics, offline
+uv run python -m eval.run_eval --retrieval-only # no Ollama; offline after search-model caching
 uv run python -m eval.run_eval                  # local Ollama pipeline; writes eval/results.json
 uv run python -m eval.run_eval --only table,u01 # a subset, by question type or id
 uv run python -m eval.run_eval --dataset formats --retrieval-only
@@ -117,6 +126,8 @@ uv run python -m eval.run_eval --dataset vision # needs the local vision model a
 ```
 
 The test suite covers the parsers, chunker, SQL engine and sandbox, and hybrid retrieval, and runs the **full agent graph** with a scripted fake LLM. It checks routing, SQL self-correction, parallel agents, the "I don't know" gate, low-confidence retries and conversation memory. New format tests use generated slides, images, scans, HTML and code; vision and web HTTP responses are mocked. The Ollama wrapper is tested against mock HTTP responses for structured output, image payloads, configuration, transient errors, cancellation and interrupted streams. Mocked image tests validate integration, not OCR or visual-model accuracy.
+
+Retrieval and graph tests use real local embedding and reranking models. Their first run may download models into `data/models/`; later runs use the cache. The evaluation runner generates its selected synthetic corpus automatically, so a separate corpus-generation command is only needed for manual inspection or uploads.
 
 Evaluation output includes the configured model names, context size, client version, platform, accuracy, citations, and latency. Run the full evaluation before comparing models; the smaller local model may not reproduce the historical Gemini results.
 
@@ -127,9 +138,11 @@ Evaluation output includes the configured model names, context size, client vers
 | `vision` | 4 | 10 | Two-page scanned PDF, receipt, colored bar chart and screenshot; OCR, chart values/color, spatial layout and missing information |
 | `all` | 14 | 55 | Combined datasets |
 
-`--only` accepts question IDs, types or format tags and applies to both retrieval and pipeline runs. Each run loads the entire selected dataset as retrieval context. The `vision` and `all` datasets require `OLLAMA_VISION_MODEL` **even with `--retrieval-only`**, because ingestion extracts evidence from pixels. Missing or partial extraction stops the evaluation instead of silently treating missing images as successful tests. The formats retrieval evaluation needs only the cached local search models.
+`--only` accepts question IDs, types or format tags and applies to both retrieval and pipeline runs. Each run loads the entire selected dataset as retrieval context. Retrieval-only scoring covers single-source and cross-document questions; SQL, summaries, follow-ups and refusals need a pipeline run. The `vision` and `all` datasets require `OLLAMA_VISION_MODEL` **even with `--retrieval-only`**, because ingestion extracts evidence from pixels. Missing or partial extraction stops the evaluation instead of silently treating missing images as successful tests. The formats retrieval evaluation needs only the cached local search models.
 
 Results are separated by dataset and mode: `eval/results.json` for the baseline pipeline, `eval/results-formats.json`, `eval/results-vision.json`, or `eval/results-all.json` for the new pipelines, and `eval/results-<dataset>-retrieval.json` for new retrieval runs (`eval/results-retrieval.json` for baseline). Use `--output <path>` to keep a named run. Metadata records dataset/version, selected questions, corpus files, model configuration and scoring version. All default result paths and generated corpus files are ignored by Git.
+
+Current runs use scoring version **2**, which removes citation markers before matching answers and checks token/number boundaries. The historical Ollama and Gemini results below used the older substring scorer; they have not been rerun with the current scorer and prompts.
 
 The [dataset guide](eval/DATASETS.md) documents the fixtures and question conventions. The [file-support validation record](eval/file-support-validation.md) records new checks separately from the historical model results.
 
@@ -143,7 +156,7 @@ The [dataset guide](eval/DATASETS.md) documents the fixtures and question conven
 - **Timeout or memory pressure**: wait for model loading, close other memory-heavy applications, increase `OLLAMA_TIMEOUT_S`, or select a smaller model. Lowering `OLLAMA_NUM_CTX` reduces memory use but can truncate evidence for long questions.
 - **Invalid structured output**: DocuPilot retries once with validation feedback, then reports an error. Retry the question or use a model with stronger JSON support.
 - **Interrupted answer**: retry the question. Partial streamed answers are never silently replayed.
-- **The first question is slow**: the local models load on first use. After that they are cached in `data/models/`.
+- **The first chat or upload is slow**: search models load on first use, with background warmup at chat start. The first run may download them into `data/models/`; later runs reuse the cache. Ollama may also need time to load its model into memory.
 - **An image or scanned PDF cannot be read**: install the model named by `OLLAMA_VISION_MODEL` and start Ollama. Alternatively, scanned PDF text can use `USE_OCR=true` with local Tesseract installed. See the upload report for skipped pages.
 
 ---
@@ -159,11 +172,16 @@ flowchart LR
     R -->|DOCX| W[python-docx<br/>body walk in order<br/>+ page breaks]
     R -->|MD / TXT| T[heading parser]
     R -->|PPTX| SL[slide text, charts, tables, notes]
-    R -->|Images / scanned PDF pages| V[local Ollama vision<br/>OCR + visual descriptions]
-    R -->|Code / HTML| H[line-preserving code / static HTML parser]
-    R -->|CSV / XLSX| S[pandas<br/>header detection<br/>+ type inference]
-    P & W & T & SL & V & H --> SEC[Sections<br/>text, code or table<br/>+ page + heading path]
-    SEC --> CH[Chunker<br/>page and heading bounded<br/>tables kept whole]
+    R -->|Images| V[local Ollama vision<br/>OCR + visual descriptions]
+    P -->|scanned pages| V
+    SL -->|raster pictures| V
+    R -->|Code| C[line-preserving code parser]
+    R -->|HTML| H[static HTML parser<br/>bounded Next.js fallback]
+    URL[Pasted page URLs] --> FETCH[bounded HTTP fetch]
+    FETCH --> H
+    R -->|CSV / TSV / XLSX / XLSM| S[pandas<br/>header detection<br/>+ type inference]
+    P & W & T & SL & V & C & H --> SEC[Sections<br/>text, code or table<br/>+ source location]
+    SEC --> CH[Chunker<br/>page and heading bounded<br/>table rows kept whole]
     S --> DB[(DuckDB<br/>one table per sheet<br/>sandboxed)]
     S --> SC[Schema cards<br/>columns, ranges, samples]
     CH & SC --> EMB[Local embeddings<br/>bge-small dense + BM25 sparse]
@@ -178,15 +196,19 @@ flowchart TD
     RT -->|docs / summary| RET[Retrieval agent<br/>hybrid search, RRF fusion<br/>cross-encoder rerank]
     RT -->|table| TAB[Table agent<br/>text-to-SQL on DuckDB<br/>self-correcting]
     RT -->|both: in parallel| RET & TAB
-    RT -->|chitchat| SYN
+    RT -->|chitchat| CHAT[Conversational reply]
     RET --> SYN[Synthesis agent<br/>numbered sources, cited answer<br/>streamed]
     TAB --> SYN
-    SYN -->|nothing relevant, 1st try| RET
+    SYN -->|no evidence, 1st try| RETRY[Retry once<br/>widen retrieval or rerun SQL]
+    SYN -->|draft refusal, 1st try, except table| RETRY
     SYN -->|answer drafted| VER[Verifier<br/>claim-by-claim check<br/>confidence score]
     SYN -->|no evidence after retry| IDK[I don't know<br/>+ what was searched]
-    VER -->|low confidence, 1st try| RET
-    VER --> OUT([Answer + citations + confidence])
+    VER -->|low confidence, 1st try, except summary| RETRY
+    RETRY -->|docs / both / summary| RET
+    RETRY -->|table| TAB
+    VER --> OUT([Final answer])
     IDK --> OUT
+    CHAT --> OUT
     OUT -.->|history| MEM[(Conversation memory<br/>LangGraph checkpointer)]
     MEM -.-> RT
 ```
@@ -200,7 +222,7 @@ flowchart TD
 | Embeddings | `BAAI/bge-small-en-v1.5` (dense) + `Qdrant/bm25` (sparse), ONNX via fastembed, local |
 | Reranker | `Xenova/ms-marco-MiniLM-L-12-v2` cross-encoder, local |
 | Vector DB | Qdrant in embedded mode (no server), named dense and sparse vectors, RRF fusion |
-| Parsing | `pymupdf4llm` (PDF), `python-docx` (DOCX), `python-pptx` (PPTX), BeautifulSoup (static HTML), Pillow + local Ollama vision (images), custom Markdown/TXT and line-preserving code parsers |
+| Parsing | `pymupdf4llm` (PDF), `python-docx` (DOCX), `python-pptx` (PPTX), BeautifulSoup (static HTML) with a bounded Next.js data fallback, Pillow + local Ollama vision (images), custom Markdown/TXT and line-preserving code parsers |
 | Tables | pandas + DuckDB (in-memory per chat, external access disabled) |
 | UI | Chainlit (file upload, streaming, per-agent steps, citation side panels, PDF viewer) |
 
@@ -212,7 +234,7 @@ flowchart TD
 | **Retrieval** | local | Hybrid search, then rerank, with a quota per sub-query. Guarantees each file the router named is represented. For `summary` it samples passages evenly across whole files instead. A retry doubles k and adds the user's original wording as a query. |
 | **Table / Data** | fast, JSON | Generates 1–3 DuckDB queries from the tables' schema cards and runs them in the sandbox. SQL errors go back to the model for a fix, up to 2 times. The results become citable sources. |
 | **Synthesis** | strong, streamed | Answers only from numbered sources, with `[n]` after every factual sentence. Gives both figures when a document and a spreadsheet disagree. If no source is relevant, it skips the LLM call entirely. |
-| **Verifier** | fast, JSON | Splits the answer into atomic claims and judges each against its cited source (supported / partial / unsupported). Removes unsupported claims, computes a confidence score, and triggers one retry when confidence is low. |
+| **Verifier** | fast, JSON | Splits the answer into atomic claims and judges each against its cited source (supported / partial / unsupported). Applies a revised answer to remove unsupported claims, computes a confidence score, and triggers one retry when confidence is low, except for summaries. |
 
 ---
 
@@ -225,7 +247,7 @@ flowchart TD
 *Trade-off:* short sections produce small chunks with less surrounding context. We offset this by prefixing each chunk's embedding text with `[file › heading path]`.
 
 **2. Hybrid search (dense + BM25) with RRF, then a cross-encoder reranker.**
-*Why:* dense vectors capture paraphrase, while BM25 catches rare exact tokens such as supplier names, SKUs and codes that embeddings blur. The reranker then produces a calibrated relevance score, which the "I don't know" gate depends on.
+*Why:* dense vectors capture paraphrase, while BM25 catches rare exact tokens such as supplier names, SKUs and codes that embeddings blur. The reranker's output is normalized to a 0–1 relevance score, which the "I don't know" gate depends on; it is not a calibrated probability.
 *Trade-off:* reranking costs about 0.3 s per query on CPU and adds a model to ship.
 
 **3. Tables are linearized before embedding and reranking.**
@@ -304,6 +326,8 @@ The default `baseline` dataset, `eval/questions.jsonl`, has 31 questions over th
 - 2 multi-turn follow-ups
 - 4 unanswerable questions
 
+The latest recorded integration check passed **248 tests**. Recorded retrieval-only checks reached **19/19 hit@8 and top-1** on `baseline` and **12/12** on `formats`; the latest formats check used scoring version 2 after the Next.js import change. These checks are separate from the historical full-pipeline results below. No live vision-quality results have been recorded. See the [validation record](eval/file-support-validation.md) for the individual runs and their scope.
+
 ### Local Ollama results
 
 Measured on 2026-09-26 with `qwen2.5:7b` (Q4_K_M), Ollama 0.32.5, a 16,384-token context, and a Mac mini with Apple M1 / 16 GB RAM. All 31 questions completed without API keys or runtime errors.
@@ -357,13 +381,13 @@ The first version scored 24/27, with 3/4 "I don't know" on unanswerable question
 
 **Answer quality**
 - **English-centric retrieval.** Both the embedding model and the reranker are English-trained, so other languages will retrieve noticeably worse.
-- **Summaries of long documents are shallow.** The summary route samples 16 passages evenly, which is fine for reports but misses detail in a 300-page document, because there is no map-reduce summarization.
+- **Summaries of long documents are shallow.** The summary route divides a 16-passage target across files, with at least four sampled passages per file when available. It can miss detail in a 300-page document because there is no map-reduce summarization.
 - **Confidence is not calibrated.** It's a heuristic (claim support plus retrieval relevance), not a probability of correctness. In the local evaluation, an incorrect customer count received a confidence score of 0.73.
 - **Verifier bias.** The verifier and the writer are the same model family, so a claim both misread the same way will pass.
 - **Prompt injection.** Document text goes into prompts. A malicious document could try to steer answers. The SQL sandbox protects data access, but the answer text itself isn't protected.
 
 **Deployment**
-- **Ephemeral, single-process sessions.** Uploads, tables and memory are cleared on restart. There are no user accounts or persistence, and embedded Qdrant can't be shared by several app processes.
+- **Ephemeral, single-process sessions.** Chats cannot be restored after a restart: tables and conversation memory live in process memory, and the vector collection is reset when the next process initializes it. Normal chat-end cleanup deletes that chat's indexed data and upload directory, but interrupted shutdowns can leave files in `data/uploads/` or Chainlit's `.files/`. There are no user accounts or persistent chat recovery, and embedded Qdrant can't be shared by several app processes.
 - **Scale.** Embedded Qdrant keeps vectors in memory. It's comfortable at tens of thousands of chunks per instance; bigger corpora need Qdrant server mode. Files are ingested one after another.
 - **Initial downloads required.** Install dependencies and download the Ollama, embedding and reranker models before working offline. Subsequent inference requires the local Ollama service, with no API key. Local speed and answer quality depend on hardware and model size.
 
@@ -391,16 +415,22 @@ The first version scored 24/27, with 3/4 "I don't know" on unanswerable question
 ## Project layout
 
 ```
-app.py               Chainlit UI: uploads, streaming, agent steps, citations, PDF viewer
+app.py               Chainlit UI: uploads, pasted URLs, streaming, agent steps, citations
+AGENTS.md            repository development and validation guidance
+.env.example         common optional settings; defaults are in docupilot/config.py
+.chainlit/config.toml UI upload filters, limits and WebSocket transport
+chainlit.md          welcome page
 docupilot/
   config.py          settings (.env)
   llm.py             Local Ollama wrapper: JSON-schema output, validation, streaming, retries
   models.py          Section / Chunk / Citation / TableInfo …
-  workspace.py       per-session files: parse → chunk → index; DuckDB tables
+  workspace.py       per-session files/URLs, deduplication, extraction warnings, DuckDB tables
   retrieval.py       hybrid search + rerank + sub-query quotas + file guarantees
   prompts.py         all agent prompts
   agents/            router, retriever, table, synthesis, verifier, graph (LangGraph wiring)
   ingest/            PDF, Word, PPTX, image, code, HTML/web, text and tabular parsers; chunker
+    formats.py       supported extensions and special code filenames
+    nextjs.py        bounded, data-only fallback for otherwise empty Next.js HTML
   index/             embed.py (local models), store.py (Qdrant)
 eval/
   corpus.py          baseline corpus and dataset selection
@@ -408,5 +438,5 @@ eval/
   questions*.jsonl   31 baseline + 14 format + 10 vision questions
   DATASETS.md        dataset contents, generation, scoring and evaluation commands
   run_eval.py        eval harness (retrieval-only or full pipeline)
-tests/               pytest suite (offline)
+tests/               pytest suite (offline after search-model caching; fake LLM/vision/HTTP)
 ```
