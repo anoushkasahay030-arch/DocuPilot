@@ -2,6 +2,8 @@
 
     uv run python -m eval.run_eval                   # full pipeline (needs local Ollama + model)
     uv run python -m eval.run_eval --retrieval-only  # offline: retrieval hit@k only
+    uv run python -m eval.run_eval --dataset formats # new PPTX/code/HTML fixtures
+    uv run python -m eval.run_eval --dataset vision  # images/scans; needs local vision model at ingestion
 
 Metrics
 - retrieval hit@k     expected file (and page) among the retrieved passages (docs questions)
@@ -29,7 +31,7 @@ from docupilot.config import get_settings
 from docupilot.index.store import VectorStore
 from docupilot.retrieval import retrieve
 from docupilot.workspace import Workspace
-from eval.corpus import build_corpus, table_facts
+from eval.corpus import DATASETS, build_corpus, table_facts
 
 HERE = Path(__file__).parent
 _IDK = re.compile(r"couldn'?t find|can(?:not|'t) answer|could not find|not (?:mentioned|specified|stated|included|available|provided|"
@@ -41,50 +43,86 @@ def norm(s: str) -> str:
     return re.sub(r"(?<=\d),(?=\d{3})", "", s).lower()
 
 
-def load_questions() -> list[dict]:
+def load_questions(dataset: str = "baseline") -> list[dict]:
+    if dataset not in DATASETS:
+        raise ValueError(f"Unknown dataset: {dataset}")
     facts = table_facts()
     out = []
-    for line in (HERE / "questions.jsonl").read_text().splitlines():
-        if line.strip():
-            q = json.loads(line)
-            q["expect"] = [e.format(**facts) for e in q.get("expect", [])]
-            out.append(q)
+    names = {"baseline": "questions.jsonl", "formats": "questions_formats.jsonl", "vision": "questions_vision.jsonl"}
+    for name in names if dataset == "all" else [dataset]:
+        for line in (HERE / names[name]).read_text().splitlines():
+            if line.strip():
+                q = json.loads(line)
+                q["dataset"] = name
+                for field in ("expect", "expect_all"):
+                    q[field] = [e.format(**facts) for e in q.get(field, [])]
+                out.append(q)
     return out
 
 
+def select_questions(questions: list[dict], only: set[str] | None) -> list[dict]:
+    return [q for q in questions if not only or only.intersection({q["id"], q["type"], q.get("format", "")})]
+
+
+def contains_expected(answer: str, expected: str) -> bool:
+    # Citation numbers are not answer facts; neither is the 8 inside 8000 evidence for a charge of 8.
+    answer = norm(re.sub(r"\[\d+(?:\s*,\s*\d+)*\]", "", answer))
+    expected = norm(expected)
+    if re.fullmatch(r"-?\d+(?:\.\d+)?", expected):
+        number = re.escape(expected) + (r"0*" if "." in expected else r"(?:\.0+)?")
+        return bool(re.search(r"(?<![\w.\-])" + number + r"(?!\w|\.\d)", answer))
+    return bool(re.search(r"(?<!\w)" + re.escape(expected) + r"(?!\w)", answer))
+
+
+def answer_correct(answer: str, q: dict) -> bool:
+    every = q.get("expect_all", [])
+    alternatives = q.get("expect", [])
+    return (bool(every or alternatives)
+            and all(contains_expected(answer, e) for e in every)
+            and (not alternatives or any(contains_expected(answer, e) for e in alternatives)))
+
+
+def source_matches(source, q: dict) -> bool:
+    return (source.file_name in q["files"]
+            and (q.get("page") is None or source.page == q["page"])
+            and (not q.get("heading_contains")
+                 or q["heading_contains"].lower() in source.heading_path.lower()))
+
+
 def cites_expected(citations, q) -> bool:
-    for c in citations:
-        if c.file_name in q["files"] and (q.get("page") is None or c.page == q["page"] or q["type"] == "cross"):
-            return True
-    return False
+    matching = {c.file_name for c in citations if source_matches(c, q)}
+    return set(q["files"]) <= matching if q.get("require_all_files") else bool(matching)
 
 
 def hit(chunks, q) -> bool:
-    return any(r.chunk.file_name in q["files"] and (q.get("page") is None or r.chunk.page == q["page"])
-               for r in chunks)
+    return cites_expected([r.chunk for r in chunks], q)
 
 
-def retrieval_only(ws: Workspace, questions: list[dict], k: int) -> None:
+def retrieval_only(ws: Workspace, questions: list[dict], k: int) -> dict:
     rows = []
     for q in questions:
-        if q["type"] not in ("single", "cross", "followup"):
+        if q["type"] not in ("single", "cross"):
             continue
         text = q.get("question") or q["turns"][-1]
-        if q["type"] == "followup":
-            continue  # needs the router's rewrite; covered by the full run
         t = time.perf_counter()
         res = retrieve(ws.store, [text], ws.session_id, k=k)
         dt = time.perf_counter() - t
         if q["type"] == "cross":
-            ok = set(q["files"]) <= {r.chunk.file_name for r in res}
+            ok = hit(res, {**q, "require_all_files": True})
         else:
             ok = hit(res, q)
-        top1 = bool(res) and res[0].chunk.file_name in q["files"] and (q.get("page") in (None, res[0].chunk.page))
-        rows.append((q["id"], ok, top1, dt))
+        top1 = bool(res) and source_matches(res[0].chunk, q)
+        rows.append({"id": q["id"], "hit": ok, "top1": top1, "latency_s": round(dt, 4)})
         print(f"{q['id']:4} hit@{k}={'✓' if ok else '✗'} top1={'✓' if top1 else '✗'} {dt * 1000:5.0f} ms  {text}")
     n = len(rows)
-    print(f"\nhit@{k}: {sum(r[1] for r in rows)}/{n}   top-1: {sum(r[2] for r in rows)}/{n}   "
-          f"median latency: {statistics.median(r[3] for r in rows) * 1000:.0f} ms")
+    summary = {"hit_at_k": [sum(r["hit"] for r in rows), n], "top1": [sum(r["top1"] for r in rows), n],
+               "latency_median_s": round(statistics.median(r["latency_s"] for r in rows), 4) if rows else None}
+    if rows:
+        print(f"\nhit@{k}: {summary['hit_at_k'][0]}/{n}   top-1: {summary['top1'][0]}/{n}   "
+              f"median latency: {summary['latency_median_s'] * 1000:.0f} ms")
+    else:
+        print("No single-source or cross-document retrieval questions selected.")
+    return {"summary": summary, "results": rows}
 
 
 async def full_run(ws: Workspace, questions: list[dict], only: set[str] | None) -> list[dict]:
@@ -94,9 +132,7 @@ async def full_run(ws: Workspace, questions: list[dict], only: set[str] | None) 
     deps = Deps(ws, LLM(settings), settings)
     graph = build_graph()
     results = []
-    for q in questions:
-        if only and q["id"] not in only and q["type"] not in only:
-            continue
+    for q in select_questions(questions, only):
         turns = q.get("turns") or [q["question"]]
         thread = f"eval-{q['id']}"
         first_token: list[float] = []
@@ -114,18 +150,17 @@ async def full_run(ws: Workspace, questions: list[dict], only: set[str] | None) 
         total = time.perf_counter() - t0
         answer = state.get("answer", "")
         is_idk = bool(state.get("idk")) or bool(_IDK.search(answer))
-        r = {"id": q["id"], "type": q["type"], "question": turns[-1], "answer": answer, "route": state.get("route"),
+        r = {"id": q["id"], "type": q["type"], "dataset": q.get("dataset", "baseline"),
+             "format": q.get("format"), "question": turns[-1], "answer": answer, "route": state.get("route"),
              "confidence": state.get("confidence"), "idk": is_idk, "latency_s": round(total, 2),
              "ttft_s": round(first_token[0], 2) if first_token else None, "attempt": state.get("attempt"),
-             "citations": [c.label() for c in state.get("citations", [])]}
+             "citations": [c.label() for c in state.get("citations", [])],
+             "source_locations": [{"file": c.file_name, "page": c.page, "heading": c.heading_path}
+                                  for c in state.get("citations", [])]}
         if q["type"] == "unanswerable":
             r["correct"] = is_idk
         else:
-            expect_all = q.get("expect_all")
-            if expect_all:
-                r["correct"] = all(norm(e) in norm(answer) for e in expect_all)
-            else:
-                r["correct"] = any(norm(e) in norm(answer) for e in q["expect"])
+            r["correct"] = not is_idk and answer_correct(answer, q)
             r["cited_ok"] = cites_expected(state.get("citations", []), q)
             if q["type"] != "table":
                 r["retrieval_hit"] = hit(state.get("chunks", []), q)
@@ -153,7 +188,7 @@ def summarize(results: list[dict]) -> dict:
         "false_idk_on_answerable": (sum(r["idk"] for r in answerable), len(answerable)),
     }
     by_type = {}
-    for t in ("single", "cross", "table", "followup"):
+    for t in ("single", "cross", "table", "followup", "summary"):
         rows = [r for r in answerable if r["type"] == t]
         if rows:
             by_type[t] = rate(rows, "correct")
@@ -189,30 +224,55 @@ def print_summary(s: dict) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--dataset", choices=DATASETS, default="baseline")
     ap.add_argument("--retrieval-only", action="store_true")
-    ap.add_argument("--only", help="comma-separated question ids or types")
+    ap.add_argument("--only", help="comma-separated question ids, types, or formats (e.g. pptx,code,html)")
     ap.add_argument("--k", type=int, default=get_settings().top_k)
+    ap.add_argument("--output", type=Path, help="result JSON path; defaults to a separate file for each dataset/mode")
     args = ap.parse_args()
+    if args.k < 1:
+        ap.error("--k must be positive")
+    only = {item.strip() for item in args.only.split(",") if item.strip()} if args.only else None
+    questions = select_questions(load_questions(args.dataset), only)
+    if not questions:
+        ap.error("No questions matched --only in the selected dataset.")
 
-    corpus = build_corpus(HERE / "corpus")
+    corpus = build_corpus(HERE / "corpus", dataset=args.dataset)
     ws = Workspace("eval", VectorStore(None))
     t = time.perf_counter()
-    for p in corpus.values():
-        ws.ingest(p)
-    print(f"Ingested {len(ws.files)} files ({sum(f.chunks for f in ws.files.values())} chunks, "
-          f"{len(ws.tables.tables)} tables) in {time.perf_counter() - t:.1f}s\n")
+    try:
+        for p in corpus.values():
+            info = ws.ingest(p)
+            if info.warnings:
+                raise RuntimeError(f"Incomplete extraction of {info.name}: {' '.join(info.warnings)}")
+        print(f"Dataset: {args.dataset}; {len(questions)} selected questions\n"
+              f"Ingested {len(ws.files)} files ({sum(f.chunks for f in ws.files.values())} chunks, "
+              f"{len(ws.tables.tables)} tables) in {time.perf_counter() - t:.1f}s\n")
 
-    questions = load_questions()
-    if args.retrieval_only:
-        retrieval_only(ws, questions, args.k)
-        return
-    results = asyncio.run(full_run(ws, questions, set(args.only.split(",")) if args.only else None))
-    summary = summarize(results)
-    print_summary(summary)
-    out = HERE / "results.json"
+        if args.retrieval_only:
+            output = retrieval_only(ws, questions, args.k)
+        else:
+            results = asyncio.run(full_run(ws, questions, None))
+            output = {"summary": summarize(results), "results": results}
+            print_summary(output["summary"])
+    finally:
+        ws.close()
+
+    suffix = "" if args.dataset == "baseline" else f"-{args.dataset}"
+    suffix += "-retrieval" if args.retrieval_only else ""
+    out = args.output or HERE / f"results{suffix}.json"
     settings = get_settings()
     metadata = {
         "recorded_at": datetime.now(timezone.utc).isoformat(),
+        "dataset": args.dataset,
+        "dataset_version": 1,
+        "scoring_version": 2,
+        "mode": "retrieval-only" if args.retrieval_only else "pipeline",
+        "question_ids": [q["id"] for q in questions],
+        "corpus_files": [p.name for p in corpus.values()],
+        "vision_model": settings.ollama_vision_model if args.dataset in {"vision", "all"} else None,
+        "use_ocr": settings.use_ocr,
+        "k": args.k if args.retrieval_only else settings.top_k,
         "provider": "ollama",
         "model": settings.ollama_model,
         "strong_model": settings.ollama_strong_model or settings.ollama_model,
@@ -222,7 +282,8 @@ def main() -> None:
         "platform": platform.platform(),
         "machine": platform.machine(),
     }
-    out.write_text(json.dumps({"metadata": metadata, "summary": summary, "results": results}, indent=2, default=str))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"metadata": metadata, **output}, indent=2, default=str))
     print(f"\nWrote {out}")
 
 

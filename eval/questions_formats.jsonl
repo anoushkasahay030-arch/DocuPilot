@@ -1,0 +1,14 @@
+{"id":"p01","type":"single","format":"pptx","question":"When is the Zephyr launch and who owns it?","files":["launch.pptx"],"page":1,"expect_all":["October 12","2026","Ada"]}
+{"id":"p02","type":"single","format":"pptx","question":"How many pilot seats are allocated to the East region in the Zephyr rollout?","files":["launch.pptx"],"page":2,"expect":["60"]}
+{"id":"p03","type":"single","format":"pptx","question":"What checkout error rate triggers a rollback according to the Zephyr speaker notes?","files":["launch.pptx"],"page":2,"heading_contains":"Speaker notes","expect":["2%","2 percent"]}
+{"id":"p04","type":"single","format":"pptx","question":"What are the Q2 2027 bookings forecast in the Zephyr chart, including the units?","files":["launch.pptx"],"page":3,"expect_all":["1.8"],"expect":["million","millions"]}
+{"id":"k01","type":"single","format":"code","question":"What percentage discount does apply_discount in pricing.py apply?","files":["pricing.py"],"heading_contains":"lines","expect":["10%","10 percent"]}
+{"id":"k02","type":"single","format":"code","question":"What shipping charge does pricing.py return for a subtotal below 100?","files":["pricing.py"],"heading_contains":"lines","expect":["8"]}
+{"id":"k03","type":"single","format":"code","question":"What is MAX_ATTEMPTS in retry_policy.ts?","files":["retry_policy.ts"],"heading_contains":"lines","expect":["3","three"]}
+{"id":"k04","type":"single","format":"code","question":"What is the maximum delay returned by retryDelay in retry_policy.ts?","files":["retry_policy.ts"],"heading_contains":"lines","expect":["8000"]}
+{"id":"h01","type":"single","format":"html","question":"Who should unresolved Orion incidents be escalated to, and after how long?","files":["guide.html"],"heading_contains":"Escalation","expect_all":["Mira","45"]}
+{"id":"h02","type":"single","format":"html","question":"What is the Silver plan response target in the Orion support guide?","files":["guide.html"],"heading_contains":"Response targets","expect":["4","four"]}
+{"id":"h03","type":"single","format":"html","question":"What requestTimeoutSeconds value is shown in the Orion client configuration?","files":["guide.html"],"heading_contains":"Client configuration","expect":["20","twenty"]}
+{"id":"n01","type":"cross","format":"mixed","question":"Who owns the Zephyr launch and who handles unresolved Orion incidents?","files":["launch.pptx","guide.html"],"require_all_files":true,"expect_all":["Ada","Mira"]}
+{"id":"n02","type":"summary","format":"code","question":"Explain the pricing.py code, including its discount and shipping rules.","files":["pricing.py"],"expect_all":["100","8"],"expect":["10%","10 percent"]}
+{"id":"fu01","type":"unanswerable","format":"html","question":"What support phone number is published in the visible Orion support guide?","files":["guide.html"],"expect":[]}

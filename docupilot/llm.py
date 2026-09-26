@@ -37,7 +37,7 @@ class LLM:
         return self.settings.ollama_strong_model or self.fast
 
     @staticmethod
-    def _messages(prompt: str, system: str | None) -> list[dict[str, str]]:
+    def _messages(prompt: str, system: str | None) -> list[dict]:
         messages = [{"role": "system", "content": system}] if system else []
         return [*messages, {"role": "user", "content": prompt}]
 
@@ -57,7 +57,7 @@ class LLM:
             detail += " The response was interrupted; please retry the question."
         return RuntimeError(detail)
 
-    async def _request(self, messages: list[dict[str, str]], model: str, temperature: float,
+    async def _request(self, messages: list[dict], model: str, temperature: float,
                        *, stream: bool = False, schema: dict | None = None) -> AsyncIterator[str]:
         # The streaming HTTP request starts when the SDK iterator is consumed, so retries must
         # cover iteration too. Once content reaches the caller, replay would duplicate its answer.
@@ -98,11 +98,14 @@ class LLM:
             self._messages(prompt, system), model or self.fast, temperature)])
 
     async def generate_json(self, prompt: str, schema: type[T], *, system: str | None = None,
-                            model: str | None = None, temperature: float = 0.0) -> T:
+                            model: str | None = None, temperature: float = 0.0,
+                            images: list[bytes] | None = None) -> T:
         model = model or self.fast
         json_schema = schema.model_json_schema()
         instruction = "Return only a JSON object matching this schema:\n" + json.dumps(json_schema)
         messages = self._messages(prompt, f"{system}\n\n{instruction}" if system else instruction)
+        if images:
+            messages[-1]["images"] = images
         for attempt in range(2):
             content = "".join([text async for text in self._request(
                 messages, model, temperature, schema=json_schema)])

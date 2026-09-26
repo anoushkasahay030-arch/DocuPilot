@@ -1,0 +1,10 @@
+{"id":"v01","type":"single","format":"scanned_pdf","question":"Who is the supplier on scanned invoice INV-2048?","files":["scanned_invoice.pdf"],"page":1,"expect":["Northstar Labs"]}
+{"id":"v02","type":"single","format":"scanned_pdf","question":"What is the total due on scanned invoice INV-2048?","files":["scanned_invoice.pdf"],"page":1,"expect":["1280"]}
+{"id":"v03","type":"single","format":"scanned_pdf","question":"What payment terms are stated on the second page of scanned invoice INV-2048?","files":["scanned_invoice.pdf"],"page":2,"expect":["Net 30","30 days","thirty days"]}
+{"id":"v04","type":"single","format":"image","question":"Which vendor issued receipt R-731?","files":["receipt.png"],"expect":["Harbor Stationery"]}
+{"id":"v05","type":"single","format":"image","question":"What is the total paid on receipt R-731?","files":["receipt.png"],"expect":["18"]}
+{"id":"v06","type":"single","format":"chart","question":"Which quarter has the highest support ticket count in support_tickets.png, and what is the count?","files":["support_tickets.png"],"expect_all":["Q4","24"]}
+{"id":"v07","type":"single","format":"chart","question":"Which quarter is represented by the orange bar in support_tickets.png?","files":["support_tickets.png"],"expect":["Q4","fourth quarter","quarter 4"]}
+{"id":"v08","type":"single","format":"screenshot","question":"Which missing environment variable caused the deployment failure shown in deployment_console.png?","files":["deployment_console.png"],"expect":["DATABASE_URL"]}
+{"id":"v09","type":"single","format":"screenshot","question":"Where is the Retry deployment button relative to the error banner in deployment_console.png?","files":["deployment_console.png"],"expect":["below","underneath","beneath"]}
+{"id":"vu01","type":"unanswerable","format":"chart","question":"How many support tickets are forecast for next year in support_tickets.png?","files":["support_tickets.png"],"expect":[]}

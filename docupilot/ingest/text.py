@@ -78,14 +78,27 @@ def markdown_to_sections(md: str, file_name: str, *, page: int | None = None, pa
     return sections
 
 
-def parse_text_file(path: Path, file_name: str) -> list[Section]:
-    raw = path.read_bytes()
+def decode_text(raw: bytes) -> str:
     if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
-        text = raw.decode("utf-16")
+        return raw.decode("utf-16")
     else:
         try:
-            text = raw.decode("utf-8-sig")
+            return raw.decode("utf-8-sig")
         except UnicodeDecodeError:
-            text = raw.decode("latin-1")
-    is_md = path.suffix.lower() in {".md", ".markdown"}
+            return raw.decode("latin-1")
+
+
+def table_markdown(rows: list[list[str]]) -> str:
+    if not rows:
+        return ""
+    width = max(map(len, rows))
+    def line(row: list[str]) -> str:
+        return "|" + "|".join(str(c).replace("|", "\\|").replace("\n", "<br>")
+                              for c in row + [""] * (width - len(row))) + "|"
+    return "\n".join([line(rows[0]), line(["---"] * width), *(line(row) for row in rows[1:])])
+
+
+def parse_text_file(path: Path, file_name: str) -> list[Section]:
+    text = decode_text(path.read_bytes())
+    is_md = Path(file_name).suffix.lower() in {".md", ".markdown"}
     return markdown_to_sections(text, file_name, page=None, detect_headings=is_md)

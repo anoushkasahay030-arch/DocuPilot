@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:7b"
     ollama_strong_model: str | None = None  # unset = reuse ollama_model
+    ollama_vision_model: str = "qwen2.5vl:3b"
     ollama_num_ctx: int = Field(default=16384, gt=0)
     ollama_timeout_s: float = Field(default=300, gt=0)
 
@@ -45,6 +46,8 @@ class Settings(BaseSettings):
     max_files: int = 25
     max_file_mb: int = 200
     use_ocr: bool = False
+    image_max_side: int = Field(default=2048, ge=256)
+    image_max_frames: int = Field(default=50, gt=0)
 
     @property
     def qdrant_path(self) -> Path:

@@ -3,8 +3,8 @@
 Used by the unit tests and the eval harness: `uv run python -m eval.corpus eval/corpus`
 """
 
+import argparse
 import random
-import sys
 from pathlib import Path
 
 import docx
@@ -169,7 +169,20 @@ def table_facts() -> dict[str, str]:
     }
 
 
-def build_corpus(out: Path) -> dict[str, Path]:
+DATASETS = ("baseline", "formats", "vision", "all")
+
+
+def build_corpus(out: Path, *, dataset: str = "baseline") -> dict[str, Path]:
+    if dataset not in DATASETS:
+        raise ValueError(f"Unknown dataset: {dataset}")
+    if dataset != "baseline":
+        from eval.format_corpus import build_format_corpus, build_vision_corpus
+        paths = build_corpus(out) if dataset == "all" else {}
+        if dataset in {"formats", "all"}:
+            paths.update(build_format_corpus(out))
+        if dataset in {"vision", "all"}:
+            paths.update(build_vision_corpus(out))
+        return paths
     out.mkdir(parents=True, exist_ok=True)
     paths = {
         "pdf": out / "acme_annual_report_2025.pdf",
@@ -189,6 +202,9 @@ def build_corpus(out: Path) -> dict[str, Path]:
 
 
 if __name__ == "__main__":
-    target = Path(sys.argv[1] if len(sys.argv) > 1 else "eval/corpus")
-    for kind, p in build_corpus(target).items():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("out", type=Path, nargs="?", default=Path("eval/corpus"))
+    parser.add_argument("--dataset", choices=DATASETS, default="baseline")
+    args = parser.parse_args()
+    for kind, p in build_corpus(args.out, dataset=args.dataset).items():
         print(f"{kind:5} {p}")

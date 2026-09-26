@@ -10,11 +10,13 @@ from ollama import AsyncClient
 from pydantic import ValidationError
 
 import docupilot.llm as llm_module
+import docupilot.ingest.image as image_module
 from docupilot.agents.router import RouteDecision
 from docupilot.agents.table import SQLFix, SQLPlan, SQLQuery
 from docupilot.agents.verifier import Claim, Verification
 from docupilot.config import Settings
 from docupilot.llm import LLM
+from docupilot.ingest.image import ImageEvidence
 
 
 def response(content, *, done=True):
@@ -259,3 +261,29 @@ def test_existing_env_can_keep_unrelated_settings(tmp_path, monkeypatch):
     settings = Settings(_env_file=path)
     assert settings.top_k == 6
     assert not hasattr(settings, "gemini_api_key")
+
+
+def test_vision_sends_image_bytes_to_selected_local_model(make_llm):
+    import base64
+    evidence = ImageEvidence(transcription="Revenue: 42", description="A bar chart.")
+    llm, requests = make_llm(httpx.Response(200, json=response("bad JSON")),
+                             httpx.Response(200, json=response(evidence.model_dump_json())),
+                             ollama_vision_model="test-vision")
+    result = asyncio.run(llm.generate_json("Read image", ImageEvidence, model=llm.settings.ollama_vision_model,
+                                           images=[b"image-bytes"]))
+    assert result == evidence
+    assert len(requests) == 2
+    for request in requests:
+        data = body(request)
+        assert data["model"] == "test-vision"
+        assert base64.b64decode(data["messages"][1 if data["messages"][0]["role"] == "system" else 0]["images"][0]) == b"image-bytes"
+        assert "authorization" not in request.headers
+
+
+def test_image_worker_closes_its_http_client(make_llm, monkeypatch):
+    evidence = ImageEvidence(transcription="Invoice 42", description="")
+    llm, requests = make_llm(httpx.Response(200, json=response(evidence.model_dump_json())))
+    monkeypatch.setattr(image_module, "LLM", lambda settings: llm)
+    assert image_module.describe_image(b"pixels", llm.settings) == evidence
+    assert llm.client._client.is_closed
+    assert len(requests) == 1

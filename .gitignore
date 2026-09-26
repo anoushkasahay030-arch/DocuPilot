@@ -5,5 +5,6 @@ __pycache__/
 data/
 .files/
 .pytest_cache/
+:memory:.ses
 eval/corpus/
 eval/results*.json

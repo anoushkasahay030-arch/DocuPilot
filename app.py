@@ -4,6 +4,7 @@ import asyncio
 import logging
 import shutil
 from pathlib import Path
+from uuid import uuid4
 
 import chainlit as cl
 
@@ -13,6 +14,8 @@ from docupilot.agents.verifier import confidence_label
 from docupilot.config import get_settings
 from docupilot.index import embed
 from docupilot.index.store import VectorStore
+from docupilot.ingest.formats import IMAGE_TYPES
+from docupilot.ingest.web import parse_web_message
 from docupilot.llm import LLM
 from docupilot.models import Citation
 from docupilot.workspace import UnsupportedFile, Workspace
@@ -52,7 +55,9 @@ def llm() -> LLM:
 WELCOME = """### 👋 Welcome to DocuPilot
 Attach files with the 📎 button (or drag & drop) and ask anything about them.
 
-**Supported:** PDF · Word (.docx) · Markdown · TXT · CSV · Excel (.xlsx)
+**Supported:** PDF · DOCX · PPTX · Markdown · TXT · CSV/TSV · Excel · images · code · HTML
+Paste a web page URL with your question to import it automatically. `/url` also works.
+Images and scanned PDF pages use a local vision model (see README for setup).
 
 - Every claim is cited: click a **[n]** marker to see the exact passage, page, or the SQL behind a number.
 - Spreadsheets are queried with real SQL, so totals and rankings are computed rather than guessed.
@@ -85,26 +90,52 @@ async def ingest(ws: Workspace, files: list) -> None:
     report: list[str] = []
     async with cl.Step(name="Ingest", type="tool", default_open=True, show_input=False) as step:
         for f in files:
-            dest = dest_dir / Path(f.name).name
-            shutil.copy(f.path, dest)  # keep our own copy: the PDF viewer serves it later
+            directory = dest_dir / uuid4().hex
+            directory.mkdir()
+            dest = directory / Path(f.name).name
 
             def progress(message: str) -> None:
                 asyncio.run_coroutine_threadsafe(step.stream_token(message + "\n"), loop)
 
             try:
+                await asyncio.to_thread(shutil.copy, f.path, dest)
                 info = await asyncio.to_thread(ws.ingest, dest, f.name, progress)
+                if info.path != str(dest):
+                    await asyncio.to_thread(shutil.rmtree, directory, ignore_errors=True)
                 if info.kind == "spreadsheet":
                     what = f"{len(info.tables)} table(s): {', '.join(info.tables)}"
                 else:
-                    what = (f"{info.pages} pages, " if info.pages else "") + f"{info.chunks} passages"
+                    unit = "slides" if info.name.lower().endswith(".pptx") else "pages"
+                    what = (f"{info.pages} {unit}, " if info.pages else "") + f"{info.chunks} passages"
                 report.append(f"✅ **{info.name}** ({what})")
+                report.extend(f"⚠️ {warning}" for warning in info.warnings)
             except UnsupportedFile as e:
+                await asyncio.to_thread(shutil.rmtree, directory, ignore_errors=True)
                 report.append(f"⚠️ {e}")
             except Exception as e:  # noqa: BLE001 - one bad file must not break the session
+                await asyncio.to_thread(shutil.rmtree, directory, ignore_errors=True)
                 log.exception("ingest failed for %s", f.name)
                 report.append(f"❌ **{f.name}**: couldn't be parsed ({type(e).__name__}: {e})")
         step.output = "\n".join(report)
     await cl.Message(content="\n".join(report) + "\n\n" + inventory(ws)).send()
+
+
+async def ingest_url(ws: Workspace, url: str) -> bool:
+    loop = asyncio.get_running_loop()
+    async with cl.Step(name="Import web page", type="tool", show_input=False) as step:
+        def progress(message: str) -> None:
+            asyncio.run_coroutine_threadsafe(step.stream_token(message + "\n"), loop)
+        try:
+            info = await asyncio.to_thread(ws.ingest_url, url, progress)
+            report = f"✅ **{info.name}** ({info.chunks} passages)\n\n{inventory(ws)}"
+            loaded = True
+        except Exception as error:  # noqa: BLE001
+            log.exception("web import failed")
+            report = f"❌ Could not import web page: {error}"
+            loaded = False
+        step.output = report
+    await cl.Message(content=report).send()
+    return loaded
 
 
 def inventory(ws: Workspace) -> str:
@@ -135,6 +166,7 @@ def sources_footer(ws: Workspace, state: dict) -> tuple[str, list]:
     elements: list = []
     lines: list[str] = []
     pdf_pages: set[tuple[str, int]] = set()
+    shown_files: set[str] = set()
     for c in citations:
         elements.append(citation_element(c))
         line = f"- [{c.n}] {c.label()}" + (f" — {c.heading_path}" if c.heading_path else "")
@@ -146,6 +178,14 @@ def sources_footer(ws: Workspace, state: dict) -> tuple[str, list]:
                 pdf_pages.add((f.name, c.page))
                 elements.append(cl.Pdf(name=name, path=f.path, page=c.page, display="side"))
             line += f" · {name}"
+        elif f and f.file_id not in shown_files:
+            shown_files.add(f.file_id)
+            if Path(f.name).suffix.lower() in IMAGE_TYPES - {".tif", ".tiff"}:
+                elements.append(cl.Image(name=f.name, path=f.path, display="side"))
+            else:
+                elements.append(cl.File(name=f.name, path=f.path, display="side", mime="application/octet-stream"))
+        if f and f.source_url:
+            line += f" · [Web page](<{f.source_url}>)"
         lines.append(line)
 
     footer = []
@@ -167,7 +207,17 @@ async def on_message(message: cl.Message):
     files = [e for e in (message.elements or []) if getattr(e, "path", None)]
     if files:
         await ingest(ws, files)
-    question = (message.content or "").strip()
+    try:
+        urls, question = parse_web_message(message.content or "")
+    except ValueError as error:
+        await cl.Message(content=f"⚠️ {error}").send()
+        return
+    if len(urls) > settings.max_files:
+        await cl.Message(content=f"⚠️ Please import at most {settings.max_files} page URLs at a time.").send()
+        return
+    for url in urls:
+        if not await ingest_url(ws, url):
+            return
     if not question:
         return
     try:
@@ -213,4 +263,3 @@ async def starters():
     return [
         cl.Starter(label="What can you do?", message="What can you do, and which file types do you support?"),
     ]
-

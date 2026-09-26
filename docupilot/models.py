@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field, asdict
 from typing import Literal
 
-SectionKind = Literal["text", "table", "table_schema"]
+SectionKind = Literal["text", "table", "table_schema", "code"]
 
 
 @dataclass
@@ -38,7 +38,10 @@ class Chunk:
     def location(self) -> str:
         parts = [self.file_name]
         if self.page is not None:
-            parts.append(f"p. {self.page}" if self.page_exact else f"p. ~{self.page}")
+            if self.file_name.lower().endswith(".pptx"):
+                parts.append(f"slide {self.page}")
+            else:
+                parts.append(f"p. {self.page}" if self.page_exact else f"p. ~{self.page}")
         if self.heading_path:
             parts.append(self.heading_path)
         return ", ".join(parts)
@@ -88,7 +91,10 @@ class Citation:
     def label(self) -> str:
         parts = [self.file_name]
         if self.page is not None:
-            parts.append(f"p. {self.page}" if self.page_exact else f"p. ~{self.page}")
+            if self.file_name.lower().endswith(".pptx"):
+                parts.append(f"slide {self.page}")
+            else:
+                parts.append(f"p. {self.page}" if self.page_exact else f"p. ~{self.page}")
         if self.kind == "sql":
             parts.append("SQL query")
         return ", ".join(parts)
@@ -103,3 +109,5 @@ class FileInfo:
     pages: int | None = None
     chunks: int = 0
     tables: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    source_url: str | None = None

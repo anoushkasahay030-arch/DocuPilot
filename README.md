@@ -1,6 +1,6 @@
 # DocuPilot
 
-DocuPilot is a multi-agent chat app for your files. Upload PDFs, Word documents, Markdown, text files and spreadsheets, then ask questions across all of them. Answers use retrieved passages, include file and page citations, and pass through a verification step. Spreadsheet questions can be computed with real SQL. Model mistakes remain possible; see the measured results and limitations below.
+DocuPilot is a multi-agent chat app for your files. Upload documents, slides, spreadsheets, images, code, or HTML, or import a web page, then ask questions across them. Answers use retrieved passages, include source citations, and pass through a verification step. Spreadsheet questions are computed with real SQL; image text and visual descriptions are extracted with a local vision model. Model mistakes remain possible; see the measured results and limitations below.
 
 > **Local inference:** Qwen2.5 7B through Ollama, with no API keys. On the existing evaluation, the local model answered **23/27** answerable questions correctly with **24.4 s** median total latency on an M1 Mac with 16 GB RAM. See [Evaluation](#evaluation) for limitations and the historical Gemini baseline.
 
@@ -43,10 +43,39 @@ uv run chainlit run app.py          # opens http://localhost:8000
 2. Ask questions, for example *"What was Q3 operating margin?"*, *"Total revenue by region"*, *"Compare the report's Q4 revenue with the sales sheet"* or *"Summarize the handbook"*.
 3. Click any `[n]` to open its source. Expand the agent steps above an answer to see the route, the retrieved passages with scores, the SQL, and the per-claim fact-check.
 
-To try it without your own files, generate the sample corpus. It's a 4-page PDF annual report, a DOCX handbook, an MD FAQ, TXT meeting minutes, an XLSX with a title row above its header, and a CSV:
+### Supported files
+
+| Content | Support |
+|---|---|
+| Documents | PDF, DOCX, TXT, Markdown (`.md`, `.markdown`) |
+| Slides | PPTX text, grouped shapes, tables, native chart values, speaker notes and raster pictures; citations identify the slide |
+| Spreadsheets | CSV, TSV, XLSX, XLSM; each sheet becomes a DuckDB table for structured filters, aggregates, rankings and joins |
+| Images | PNG, JPEG, WebP, BMP, TIFF and GIF; OCR transcription plus visual descriptions of scans, charts and screenshots; multipage/animated images retain frame labels |
+| Code | Python, JS/TS/JSX/TSX, Java, C/C++, C#, Go, Rust, Ruby, PHP, Swift, Kotlin, Scala, shell, SQL, R, Lua, Perl, Objective-C, Vue/Svelte, CSS/SCSS, JSON/YAML/TOML/XML/INI/CFG, Dockerfile and Makefile; whitespace and line ranges are preserved; code is read, never executed |
+| HTML/web pages | `.html`, `.htm`, `.xhtml`, or pasted HTTP(S) URLs; visible static text, headings, tables, code, footer notices and image alt text; scripts and remote resources are not loaded |
+
+For web imports, paste an HTTP(S) URL with your question, for example `https://example.com/page` followed by `Find the copyright text` on the next line. Links within a sentence also work. The app imports each linked page before answering; a URL by itself just loads the page for later questions. `/url https://example.com/page` remains supported. URLs inside inline or fenced code examples are not imported automatically.
+
+Imports download the supplied pages (following up to five redirects); parsing and Q&A remain local. Each response is limited to `MAX_FILE_MB` and network operations have a 30-second timeout. The final URL is retained with the source. Repeated URLs, including fragment links and redirect aliases, reuse the page already loaded in that chat. Start a new chat to fetch a fresh snapshot. Visible footer copyright and legal notices are retained as citable content.
+
+### Images and scanned documents
+
+Install the separate local vision model before uploading images or scanned PDFs:
 
 ```bash
-uv run python -m eval.corpus eval/corpus
+ollama pull qwen2.5vl:3b
+```
+
+Set `OLLAMA_VISION_MODEL` to use another locally installed vision model. The default [Qwen2.5-VL 3B](https://ollama.com/library/qwen2.5vl:3b) is a roughly 3.2 GB download and requires Ollama 0.7.0 or newer. Text routing, synthesis and verification still use the existing chat model.
+
+Images are normalized locally, resized to at most `IMAGE_MAX_SIDE` pixels on either side, and sent to the configured Ollama server for structured OCR transcription and visual description. These are labelled as model-generated evidence in source panels. Scanned PDF pages without native text use the same path; blank pages are skipped. PowerPoint raster pictures also use it. Normal text documents do not require the vision model.
+
+If vision is unavailable, image-only uploads fail with setup instructions. Mixed PDFs and slide decks keep their readable content and visibly report skipped visual content. After installing the model, start a new chat and reupload partially indexed documents. `USE_OCR=true` retains the optional Tesseract PDF OCR path; Tesseract must be installed locally with its language data.
+
+To try it without your own files, generate all 14 synthetic sample files: the original six-document corpus plus slides, Python/TypeScript, HTML, an image-only scanned invoice, a receipt image, a chart and a screenshot. Generation runs locally and does not need Ollama:
+
+```bash
+uv run python -m eval.corpus eval/corpus --dataset all
 ```
 
 ### Configuration (`.env`)
@@ -56,6 +85,7 @@ uv run python -m eval.corpus eval/corpus
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server address; inference stays local with this default |
 | `OLLAMA_MODEL` | `qwen2.5:7b` | Routing, SQL generation, verification, and default answer synthesis |
 | `OLLAMA_STRONG_MODEL` | inherits `OLLAMA_MODEL` | Optional separate model for answer synthesis |
+| `OLLAMA_VISION_MODEL` | `qwen2.5vl:3b` | Local image OCR and visual descriptions; separate model download |
 | `OLLAMA_NUM_CTX` | `16384` | Context window in tokens; larger windows require more memory |
 | `OLLAMA_TIMEOUT_S` | `300` | Request/read timeout in seconds; connection timeout is 5 seconds |
 | `RERANK_MODEL` | `Xenova/ms-marco-MiniLM-L-12-v2` | Local cross-encoder (`BAAI/bge-reranker-base` is also supported, but slower) |
@@ -64,6 +94,8 @@ uv run python -m eval.corpus eval/corpus
 | `CONFIDENCE_THRESHOLD` | `0.5` | Below this, the verifier triggers one wider retry |
 | `MAX_FILES` / `MAX_FILE_MB` | `25` / `200` | Upload limits |
 | `USE_OCR` | `false` | OCR for PDF pages without a text layer (Tesseract) |
+| `IMAGE_MAX_SIDE` | `2048` | Maximum image width/height sent to the local vision model |
+| `IMAGE_MAX_FRAMES` | `50` | Reject images above this frame/page count rather than silently truncating them |
 | `DATA_DIR` | `data` | Local models, vector index and uploads |
 
 No `.env` file is required. Existing `GEMINI_*` and `STRONG_THINKING_BUDGET` settings are ignored and can be removed. Keep unrelated `.env` settings when upgrading.
@@ -77,13 +109,30 @@ uv run pytest                                 # offline after model caching; no 
 uv run python -m eval.run_eval --retrieval-only # retrieval metrics, offline
 uv run python -m eval.run_eval                  # local Ollama pipeline; writes eval/results.json
 uv run python -m eval.run_eval --only table,u01 # a subset, by question type or id
+uv run python -m eval.run_eval --dataset formats --retrieval-only
+uv run python -m eval.run_eval --dataset formats --only pptx,code,html
+uv run python -m eval.run_eval --dataset vision # needs the local vision model as well as the chat model
 ```
 
-The test suite covers the parsers, chunker, SQL engine and sandbox, and hybrid retrieval, and runs the **full agent graph** with a scripted fake LLM. It checks routing, SQL self-correction, parallel agents, the "I don't know" gate, low-confidence retries and conversation memory. The Ollama wrapper is tested against mock HTTP responses for structured output, configuration, transient errors, cancellation and interrupted streams.
+The test suite covers the parsers, chunker, SQL engine and sandbox, and hybrid retrieval, and runs the **full agent graph** with a scripted fake LLM. It checks routing, SQL self-correction, parallel agents, the "I don't know" gate, low-confidence retries and conversation memory. New format tests use generated slides, images, scans, HTML and code; vision and web HTTP responses are mocked. The Ollama wrapper is tested against mock HTTP responses for structured output, image payloads, configuration, transient errors, cancellation and interrupted streams. Mocked image tests validate integration, not OCR or visual-model accuracy.
 
 Evaluation output includes the configured model names, context size, client version, platform, accuracy, citations, and latency. Run the full evaluation before comparing models; the smaller local model may not reproduce the historical Gemini results.
 
+| Evaluation dataset | Files | Questions | Content |
+|---|---:|---:|---|
+| `baseline` (default) | 6 | 31 | Original PDF/DOCX/MD/TXT/CSV/XLSX regression set |
+| `formats` | 4 | 14 | PPTX text/tables/chart/notes, Python and TypeScript, static HTML, cross-file questions, summary and insufficient-evidence checks |
+| `vision` | 4 | 10 | Two-page scanned PDF, receipt, colored bar chart and screenshot; OCR, chart values/color, spatial layout and missing information |
+| `all` | 14 | 55 | Combined datasets |
+
+`--only` accepts question IDs, types or format tags and applies to both retrieval and pipeline runs. Each run loads the entire selected dataset as retrieval context. The `vision` and `all` datasets require `OLLAMA_VISION_MODEL` **even with `--retrieval-only`**, because ingestion extracts evidence from pixels. Missing or partial extraction stops the evaluation instead of silently treating missing images as successful tests. The formats retrieval evaluation needs only the cached local search models.
+
+Results are separated by dataset and mode: `eval/results.json` for the baseline pipeline, `eval/results-formats.json`, `eval/results-vision.json`, or `eval/results-all.json` for the new pipelines, and `eval/results-<dataset>-retrieval.json` for new retrieval runs (`eval/results-retrieval.json` for baseline). Use `--output <path>` to keep a named run. Metadata records dataset/version, selected questions, corpus files, model configuration and scoring version. All default result paths and generated corpus files are ignored by Git.
+
+The [dataset guide](eval/DATASETS.md) documents the fixtures and question conventions. The [file-support validation record](eval/file-support-validation.md) records new checks separately from the historical model results.
+
 ### Troubleshooting
+- **PDF, Office or code files are greyed out in the file picker**: restart Chainlit and hard-refresh the browser (Cmd+Shift+R on macOS) to load the updated upload filters. Chainlit's bundled picker ignores `application/*`, including extensions listed under it; the configuration uses concrete MIME types and explicit extensions instead.
 - **`Too many packets in payload`**: the UI is configured to use WebSocket directly, avoiding Engine.IO's HTTP polling batch limit. After updating `.chainlit/config.toml`, restart Chainlit and hard-refresh the browser (Cmd+Shift+R on macOS) so existing tabs load the new transport setting.
 - **Missing `en-GB` translation**: harmless; Chainlit uses the bundled `en-US` translation and `chainlit.md` instead.
 - **Chainlit rejects `DEBUG=release`**: an existing `DEBUG` environment variable can conflict with Chainlit's boolean debug option. Launch with `env -u DEBUG uv run chainlit run app.py`.
@@ -93,7 +142,7 @@ Evaluation output includes the configured model names, context size, client vers
 - **Invalid structured output**: DocuPilot retries once with validation feedback, then reports an error. Retry the question or use a model with stronger JSON support.
 - **Interrupted answer**: retry the question. Partial streamed answers are never silently replayed.
 - **The first question is slow**: the local models load on first use. After that they are cached in `data/models/`.
-- **A scanned PDF gives "no extractable text"**: set `USE_OCR=true` (see [limitations](#known-limitations)).
+- **An image or scanned PDF cannot be read**: install the model named by `OLLAMA_VISION_MODEL` and start Ollama. Alternatively, scanned PDF text can use `USE_OCR=true` with local Tesseract installed. See the upload report for skipped pages.
 
 ---
 
@@ -107,8 +156,11 @@ flowchart LR
     R -->|PDF| P[pymupdf4llm<br/>layout-aware markdown<br/>per page]
     R -->|DOCX| W[python-docx<br/>body walk in order<br/>+ page breaks]
     R -->|MD / TXT| T[heading parser]
+    R -->|PPTX| SL[slide text, charts, tables, notes]
+    R -->|Images / scanned PDF pages| V[local Ollama vision<br/>OCR + visual descriptions]
+    R -->|Code / HTML| H[line-preserving code / static HTML parser]
     R -->|CSV / XLSX| S[pandas<br/>header detection<br/>+ type inference]
-    P & W & T --> SEC[Sections<br/>text or table<br/>+ page + heading path]
+    P & W & T & SL & V & H --> SEC[Sections<br/>text, code or table<br/>+ page + heading path]
     SEC --> CH[Chunker<br/>page and heading bounded<br/>tables kept whole]
     S --> DB[(DuckDB<br/>one table per sheet<br/>sandboxed)]
     S --> SC[Schema cards<br/>columns, ranges, samples]
@@ -146,7 +198,7 @@ flowchart TD
 | Embeddings | `BAAI/bge-small-en-v1.5` (dense) + `Qdrant/bm25` (sparse), ONNX via fastembed, local |
 | Reranker | `Xenova/ms-marco-MiniLM-L-12-v2` cross-encoder, local |
 | Vector DB | Qdrant in embedded mode (no server), named dense and sparse vectors, RRF fusion |
-| Parsing | `pymupdf4llm` (PDF), `python-docx` (DOCX), a custom Markdown/TXT parser |
+| Parsing | `pymupdf4llm` (PDF), `python-docx` (DOCX), `python-pptx` (PPTX), BeautifulSoup (static HTML), Pillow + local Ollama vision (images), custom Markdown/TXT and line-preserving code parsers |
 | Tables | pandas + DuckDB (in-memory per chat, external access disabled) |
 | UI | Chainlit (file upload, streaming, per-agent steps, citation side panels, PDF viewer) |
 
@@ -243,7 +295,7 @@ We also sort candidates by length and rerank in batches of 4. Batches are padded
 
 ## Evaluation
 
-`eval/questions.jsonl` has 31 questions over the sample corpus:
+The default `baseline` dataset, `eval/questions.jsonl`, has 31 questions over the original sample corpus. The historical results in this section refer to that dataset; the added format and vision sets are separate:
 - 16 single-document facts with an expected file and page
 - 3 cross-document questions
 - 6 spreadsheet calculations, with ground truth computed independently by pandas
@@ -291,8 +343,11 @@ The first version scored 24/27, with 3/4 "I don't know" on unanswerable question
 ## Known limitations
 
 **Formats and parsing**
-- **MVP formats only.** PDF, DOCX, MD, TXT, CSV/TSV and XLSX are supported. Images, PPTX, code files, audio and HTML are not yet.
-- **Scanned PDFs.** Pages without a text layer produce no text unless `USE_OCR=true`, and that OCR path (Tesseract via pymupdf4llm) is not covered by tests. Charts and figures are not interpreted.
+- **Unsupported formats.** Legacy DOC/PPT/XLS, archives, audio and video are not supported.
+- **Visual evidence is an extraction, not a pixel-level fact-check.** The verifier sees the vision model's text, so an OCR error or an invented description can survive verification. Tiny text, handwriting, dense charts and image downscaling can lose details. Visual extraction is performed at upload time; follow-up questions search that extraction. The recorded evaluation does not measure vision accuracy.
+- **PDF and slide visuals.** Native PDF text pages use layout-aware text parsing; their embedded charts are not automatically interpreted. Export such charts as images to ask visual questions. PPTX native charts expose stored values, but SmartArt, embedded OLE objects, vector pictures and full slide-layout rendering are not supported. Tesseract integration still depends on the local installation.
+- **Web pages.** Static HTML only: no JavaScript rendering, login session, crawling, CSS layout interpretation or remote image extraction. Save authenticated pages as HTML or upload a screenshot. URL import intentionally accesses the address supplied by the user, including intranet addresses; this is a local, single-user app, not a hardened public URL-fetching service.
+- **Code.** Files are split along line boundaries, with long minified lines split to fit the chunk budget. There is no execution, repository-wide dependency resolution or language-server analysis.
 - **DOCX page numbers are approximate** (shown as `p. ~N`) unless Word saved rendered page breaks. DOCX has no fixed pages, since pagination depends on the renderer.
 - **Complex spreadsheets.**
   - Multi-row or merged headers and several tables stacked on one sheet aren't detected; each sheet is one table with one header row.
@@ -313,8 +368,8 @@ The first version scored 24/27, with 3/4 "I don't know" on unanswerable question
 ## Future work
 
 **Near term**
-- **Vision and OCR agent.** A local multimodal model for images, charts and scanned pages, alongside Tesseract or PaddleOCR.
-- **More formats.** PPTX via `python-pptx` with slide-number citations, code files with language-aware chunking, HTML via trafilatura, and audio/video transcripts via faster-whisper.
+- **Richer visual extraction.** Question-specific image inspection, native PDF chart interpretation, full slide rendering and measured OCR/vision quality.
+- **More formats.** Audio/video transcripts and richer language-aware code indexing.
 - **Highlight the cited span** inside the PDF viewer, using PyMuPDF text positions.
 - **Map-reduce summaries** for long documents.
 
@@ -343,11 +398,13 @@ docupilot/
   retrieval.py       hybrid search + rerank + sub-query quotas + file guarantees
   prompts.py         all agent prompts
   agents/            router, retriever, table, synthesis, verifier, graph (LangGraph wiring)
-  ingest/            pdf.py, word.py, text.py, tabular.py, chunker.py
+  ingest/            PDF, Word, PPTX, image, code, HTML/web, text and tabular parsers; chunker
   index/             embed.py (local models), store.py (Qdrant)
 eval/
-  corpus.py          deterministic multi-format corpus with known answers
-  questions.jsonl    31 eval questions
+  corpus.py          baseline corpus and dataset selection
+  format_corpus.py   generated PPTX/code/HTML and image/scan fixtures
+  questions*.jsonl   31 baseline + 14 format + 10 vision questions
+  DATASETS.md        dataset contents, generation, scoring and evaluation commands
   run_eval.py        eval harness (retrieval-only or full pipeline)
 tests/               pytest suite (offline)
 ```

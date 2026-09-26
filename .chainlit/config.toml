@@ -60,18 +60,41 @@ reaction_on_message_received = false
 # Authorize users to spontaneously upload files with messages
 [features.spontaneous_file_upload]
     enabled = true
-    # Define accepted file types using MIME types
-    # Examples:
-    # 1. For specific file types:
-    #    accept = ["image/jpeg", "image/png", "application/pdf"]
-    # 2. For all files of certain type:
-    #    accept = ["image/*", "audio/*", "video/*"]
-    # 3. For specific file extensions:
-    #    accept = { "application/octet-stream" = [".xyz", ".pdb"] }
-    # Note: Using "*/*" is not recommended as it may cause browser warnings
-    accept = { "application/pdf" = [".pdf"], "application/vnd.openxmlformats-officedocument.wordprocessingml.document" = [".docx"], "text/plain" = [".txt"], "text/markdown" = [".md", ".markdown"], "text/csv" = [".csv"], "text/tab-separated-values" = [".tsv"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" = [".xlsx"], "application/vnd.ms-excel.sheet.macroEnabled.12" = [".xlsm"] }
     max_files = 25
     max_size_mb = 200
+
+# Chainlit's bundled picker drops application/* and every extension under it.
+# Use concrete application MIME types. text/plain carries all extensions as a
+# picker fallback for files whose MIME type the browser/OS cannot identify.
+# Workspace ingestion enforces the supported extensions/names for every upload.
+[features.spontaneous_file_upload.accept]
+    "text/*" = []
+    "text/plain" = [".bash", ".bmp", ".c", ".cc", ".cfg", ".cpp", ".cs", ".css", ".csv", ".docx", ".gif", ".go", ".h", ".hpp", ".htm", ".html", ".ini", ".java", ".jpeg", ".jpg", ".js", ".json", ".jsx", ".kt", ".kts", ".lua", ".m", ".markdown", ".md", ".mm", ".pdf", ".php", ".pl", ".png", ".pptx", ".ps1", ".py", ".pyi", ".r", ".rb", ".rs", ".scala", ".scss", ".sh", ".sql", ".svelte", ".swift", ".tif", ".tiff", ".toml", ".ts", ".tsv", ".tsx", ".txt", ".vue", ".webp", ".xhtml", ".xlsm", ".xlsx", ".xml", ".yaml", ".yml", ".zsh"]
+    "application/octet-stream" = []
+    "application/pdf" = [".pdf"]
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document" = [".docx"]
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation" = [".pptx"]
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" = [".xlsx"]
+    "application/vnd.ms-excel.sheet.macroenabled.12" = [".xlsm"]
+    "application/vnd.ms-excel.sheet.macroEnabled.12" = [".xlsm"]
+    "application/vnd.ms-excel" = [".csv", ".tsv", ".xlsx", ".xlsm"]
+    "application/zip" = [".docx", ".pptx", ".xlsx", ".xlsm"]
+    "application/javascript" = [".js", ".jsx"]
+    "application/x-javascript" = [".js", ".jsx"]
+    "application/typescript" = [".ts", ".tsx"]
+    "application/json" = [".json"]
+    "application/xml" = [".xml"]
+    "application/xhtml+xml" = [".xhtml"]
+    "application/yaml" = [".yaml", ".yml"]
+    "application/x-yaml" = [".yaml", ".yml"]
+    "application/toml" = [".toml"]
+    "application/sql" = [".sql"]
+    "application/x-sql" = [".sql"]
+    "application/x-sh" = [".sh", ".bash", ".zsh"]
+    "application/x-httpd-php" = [".php"]
+    "application/rls-services+xml" = [".rs"]
+    "image/*" = [".bmp", ".gif", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"]
+    "video/mp2t" = [".ts"]
 
 [features.audio]
     # Enable audio features
@@ -139,7 +162,7 @@ layout = "wide"
 confirm_new_chat = true
 
 # Description of the assistant. This is used for HTML tags.
-description = "Grounded, cited chat over your PDFs, Word docs and spreadsheets"
+description = "Grounded, cited chat over documents, spreadsheets, images, code and web pages"
 
 # Chain of Thought (CoT) display mode. Can be "hidden", "tool_call" or "full".
 cot = "full"

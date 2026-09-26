@@ -1,7 +1,7 @@
 """PDF → Sections using pymupdf4llm's layout-aware markdown (headers, reading order, tables)."""
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pymupdf
@@ -21,7 +21,9 @@ def page_count(path: Path) -> int:
         return doc.page_count
 
 
-def iter_pdf_sections(path: Path, file_name: str, *, use_ocr: bool = False) -> Iterator[tuple[int, int, list[Section]]]:
+def iter_pdf_sections(path: Path, file_name: str, *, use_ocr: bool = False,
+                      visual_parser: Callable[[bytes, int, str], list[Section]] | None = None
+                      ) -> Iterator[tuple[int, int, list[Section]]]:
     """Yields (page_number, total_pages, sections) one page at a time."""
     headings = HeadingStack()
     with pymupdf.open(path) as doc:
@@ -38,7 +40,14 @@ def iter_pdf_sections(path: Path, file_name: str, *, use_ocr: bool = False) -> I
                 page_no = int(chunk["metadata"].get("page_number") or chunk["metadata"].get("page", 0))
                 if page_no == 0:
                     page_no = pages[0] + 1
-                yield page_no, total, markdown_to_sections(chunk["text"], file_name, page=page_no, headings=headings)
+                sections = markdown_to_sections(chunk["text"], file_name, page=page_no, headings=headings)
+                page = doc[page_no - 1]
+                if (visual_parser and not page.get_text().strip() and (not use_ocr or not sections)
+                        and (page.get_images() or page.get_drawings())):
+                    scale = min(2.0, 2048 / max(page.rect.width, page.rect.height))
+                    raster = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False).tobytes("png")
+                    sections = visual_parser(raster, page_no, headings.path)
+                yield page_no, total, sections
 
 
 def parse_pdf(path: Path, file_name: str, *, use_ocr: bool = False) -> list[Section]:
