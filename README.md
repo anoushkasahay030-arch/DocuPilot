@@ -11,6 +11,34 @@ DocuPilot is a multi-agent chat app for your files. Upload documents, slides, sp
 | **Trust** | A verifier checks every claim against its source, removes unsupported ones, and rates confidence. If the answer isn't in your files, it says so. |
 | **Privacy** | Parsing, search, reranking and LLM inference run **locally** with the default Ollama configuration. No API key or hosted inference service is required. |
 
+## Table of contents
+
+- [Setup and running](#setup-and-running)
+  - [Prerequisites](#prerequisites)
+  - [Install](#install)
+  - [Run the app](#run-the-app)
+  - [Supported files](#supported-files)
+  - [Images and scanned documents](#images-and-scanned-documents)
+  - [Configuration (`.env`)](#configuration-env)
+  - [Tests and evaluation](#tests-and-evaluation)
+  - [Troubleshooting](#troubleshooting)
+- [Architecture](#architecture)
+  - [Ingestion](#ingestion)
+  - [Answering a question](#answering-a-question)
+  - [Components](#components)
+  - [The agents](#the-agents)
+- [Key design decisions and trade-offs](#key-design-decisions-and-trade-offs)
+  - [Retrieval and grounding](#retrieval-and-grounding)
+  - [Spreadsheets](#spreadsheets)
+  - [Trust](#trust)
+  - [Model and deployment choices](#model-and-deployment-choices)
+- [Evaluation](#evaluation)
+  - [Local Ollama results](#local-ollama-results)
+  - [Historical Gemini baseline](#historical-gemini-baseline)
+- [Known limitations](#known-limitations)
+- [Future work](#future-work)
+- [Project layout](#project-layout)
+
 ---
 
 ## Setup and running
